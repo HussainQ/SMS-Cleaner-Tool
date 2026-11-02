@@ -413,6 +413,32 @@ private fun CloudBackupPane(
             )
         }
 
+        // Secrets & Security Status Banner
+        Surface(
+            color = CardDark,
+            shape = RoundedCornerShape(12.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, CardBorder),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    Icons.Default.Security,
+                    contentDescription = null,
+                    tint = AmberAccent,
+                    modifier = Modifier.size(16.dp)
+                )
+                Text(
+                    text = "Test Sandbox Mode: Safe test credentials in use. Zero private secrets in Git.",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
         // Cloud Storage Providers Card
         Card(
             shape = RoundedCornerShape(16.dp),

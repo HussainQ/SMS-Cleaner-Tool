@@ -21,10 +21,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.model.DuplicateKeepStrategy
 import com.example.model.SmsCategory
 import com.example.ui.CleanSmsUiState
 import com.example.ui.CleanSmsViewModel
 import com.example.ui.components.MessageCard
+import com.example.ui.components.ThreadDuplicateClusterCard
 import com.example.ui.theme.*
 
 @Composable
@@ -67,6 +69,9 @@ fun PreviewCleanScreen(
     val selectedCount = cleanableMessages.count { it.isSelected }
     val allSelected = cleanableMessages.isNotEmpty() && cleanableMessages.all { it.isSelected }
     val matchingIds = remember(cleanableMessages) { cleanableMessages.map { it.id }.toSet() }
+
+    val isDuplicateTab = uiState.selectedCategoryTab == SmsCategory.DUPLICATE
+    val threadClusters = uiState.duplicateThreadClusters
 
     Column(
         modifier = modifier
@@ -235,33 +240,127 @@ fun PreviewCleanScreen(
                     }
                 }
 
+                // Duplicates View Toolbar (Threads view + Keep Strategy)
+                if (isDuplicateTab && threadClusters.isNotEmpty()) {
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Forum,
+                                        contentDescription = null,
+                                        tint = AmberAccent,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Column {
+                                        Text(
+                                            text = "Fix Existing Threads (${threadClusters.size})",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp
+                                        )
+                                        Text(
+                                            text = "Preserves master message in thread; removes redundant copies",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+
+                                Button(
+                                    onClick = { viewModel.fixAllDuplicateThreads() },
+                                    colors = ButtonDefaults.buttonColors(containerColor = AmberAccent),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                    modifier = Modifier.testTag("auto_fix_all_threads_button")
+                                ) {
+                                    Text(
+                                        text = "Auto-Fix All",
+                                        color = Color.Black,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text("Keep:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    SuggestionChip(
+                                        onClick = { viewModel.setDuplicateKeepStrategy(DuplicateKeepStrategy.KEEP_OLDEST) },
+                                        label = { Text("Oldest (Original)", fontSize = 10.sp) },
+                                        colors = SuggestionChipDefaults.suggestionChipColors(
+                                            containerColor = if (uiState.duplicateKeepStrategy == DuplicateKeepStrategy.KEEP_OLDEST) AmberAccent.copy(alpha = 0.25f) else Color.Transparent,
+                                            labelColor = if (uiState.duplicateKeepStrategy == DuplicateKeepStrategy.KEEP_OLDEST) AmberAccent else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    )
+                                    SuggestionChip(
+                                        onClick = { viewModel.setDuplicateKeepStrategy(DuplicateKeepStrategy.KEEP_NEWEST) },
+                                        label = { Text("Newest", fontSize = 10.sp) },
+                                        colors = SuggestionChipDefaults.suggestionChipColors(
+                                            containerColor = if (uiState.duplicateKeepStrategy == DuplicateKeepStrategy.KEEP_NEWEST) AmberAccent.copy(alpha = 0.25f) else Color.Transparent,
+                                            labelColor = if (uiState.duplicateKeepStrategy == DuplicateKeepStrategy.KEEP_NEWEST) AmberAccent else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    )
+                                }
+
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("Group Threads", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Switch(
+                                        checked = uiState.groupByThreadsInDuplicates,
+                                        onCheckedChange = { viewModel.toggleGroupByThreads(it) },
+                                        modifier = Modifier.height(24.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Selection Controller Bar (Context-aware for search results)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text(
-                            text = if (searchInput.isNotBlank()) {
-                                "$selectedCount of ${cleanableMessages.size} matching selected"
-                            } else {
-                                "$selectedCount of ${cleanableMessages.size} selected"
-                            },
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                    Text(
+                        text = if (searchInput.isNotBlank()) {
+                            "$selectedCount of ${cleanableMessages.size} matching selected"
+                        } else {
+                            "$selectedCount of ${cleanableMessages.size} selected"
+                        },
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
 
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         TextButton(
                             onClick = {
                                 if (searchInput.isNotBlank()) {
-                                    // Select or deselect only matching search results
                                     viewModel.selectFilteredMessages(matchingIds, !allSelected)
                                 } else {
                                     viewModel.selectAll(!allSelected, uiState.selectedCategoryTab)
@@ -327,7 +426,25 @@ fun PreviewCleanScreen(
                     }
                 }
             }
+        } else if (isDuplicateTab && uiState.groupByThreadsInDuplicates && threadClusters.isNotEmpty() && searchInput.isBlank()) {
+            // Render Thread Clusters View
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(threadClusters, key = { it.groupId }) { cluster ->
+                    ThreadDuplicateClusterCard(
+                        cluster = cluster,
+                        onFixThread = { viewModel.fixDuplicateThread(cluster) },
+                        onClickDetail = { viewModel.showMessageDetails(it) }
+                    )
+                }
+            }
         } else {
+            // Standard individual message cards
             LazyColumn(
                 modifier = Modifier
                     .weight(1f)

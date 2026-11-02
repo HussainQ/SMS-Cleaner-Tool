@@ -474,4 +474,59 @@ class ExampleUnitTest {
         assertEquals(501L, rcsMaster.threadId)
         assertEquals(RcsDeliveryStatus.READ, rcsMaster.rcsDeliveryStatus)
     }
+
+    // EDGE CASE 13: Secrets Management & Safe Masking
+    @Test
+    fun cloudSecretsConfig_testCredentialsAndMasking_handledSecurely() {
+        // Assert test fallbacks are active when no live secret is provided
+        val clientId = com.example.cloud.CloudSecretsConfig.googleDriveClientId
+        val dropboxKey = com.example.cloud.CloudSecretsConfig.dropboxApiKey
+        assertTrue("Drive client ID should be configured", clientId.isNotBlank())
+        assertTrue("Dropbox key should be configured", dropboxKey.isNotBlank())
+
+        // Masking test
+        val masked = com.example.cloud.CloudSecretsConfig.maskSecret("TEST_MOCK_SECRET_TOKEN_ABC1234XYZ")
+        assertEquals("TEST••••4XYZ", masked)
+        assertFalse(masked.contains("SECRET_TOKEN"))
+
+        val shortMasked = com.example.cloud.CloudSecretsConfig.maskSecret("short")
+        assertEquals("••••••••", shortMasked)
+
+        // Verify test credentials flag
+        assertTrue(com.example.cloud.CloudSecretsConfig.isUsingTestCredentials())
+    }
+
+    // EDGE CASE 14: Duplicate Thread Fixing & Strategy
+    @Test
+    fun duplicateThreadClusters_fixStrategy_selectsAppropriateMaster() {
+        val now = System.currentTimeMillis()
+        val m1 = SmsMessageItem(id = "m1", address = "Bank", body = "Alert", date = now - 5000, threadId = 88L)
+        val m2 = SmsMessageItem(id = "m2", address = "Bank", body = "Alert", date = now - 2000, threadId = 88L)
+        val m3 = SmsMessageItem(id = "m3", address = "Bank", body = "Alert", date = now, threadId = 88L)
+
+        val classifiedOldest = SmsClassifier.classifyMessages(
+            rawMessages = listOf(m1, m2, m3),
+            activeRules = emptyList(),
+            filterDuplicates = true,
+            duplicateKeepStrategy = DuplicateKeepStrategy.KEEP_OLDEST
+        )
+        val clustersOldest = SmsClassifier.extractDuplicateThreadClusters(classifiedOldest)
+        assertEquals(1, clustersOldest.size)
+        val cluster1 = clustersOldest.first()
+        assertEquals(88L, cluster1.threadId)
+        assertEquals("m1", cluster1.masterMessage.id) // Oldest kept as master
+        assertEquals(2, cluster1.duplicateCopies.size)
+        assertTrue(cluster1.duplicateCopies.any { it.id == "m2" })
+        assertTrue(cluster1.duplicateCopies.any { it.id == "m3" })
+
+        val classifiedNewest = SmsClassifier.classifyMessages(
+            rawMessages = listOf(m1, m2, m3),
+            activeRules = emptyList(),
+            filterDuplicates = true,
+            duplicateKeepStrategy = DuplicateKeepStrategy.KEEP_NEWEST
+        )
+        val clustersNewest = SmsClassifier.extractDuplicateThreadClusters(classifiedNewest)
+        assertEquals("m3", clustersNewest.first().masterMessage.id) // Newest kept as master
+    }
 }
+

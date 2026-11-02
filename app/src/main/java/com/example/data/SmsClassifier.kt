@@ -1,6 +1,8 @@
 package com.example.data
 
 import com.example.model.CustomFilterRule
+import com.example.model.DuplicateKeepStrategy
+import com.example.model.DuplicateThreadCluster
 import com.example.model.MessageProtocol
 import com.example.model.RcsDeliveryStatus
 import com.example.model.SmsCategory
@@ -31,7 +33,7 @@ object SmsClassifier {
 
     /**
      * Processes a list of raw SMS and RCS messages and classifies them into:
-     * - Duplicates (preserves primary RCS thread anchor, marks redundant retries/sync copies)
+     * - Duplicates within conversation threads (keeps master copy, marks redundant retries/sync copies)
      * - Expired or All OTPs
      * - Promotions
      * - Spam & Phishing
@@ -45,12 +47,13 @@ object SmsClassifier {
         filterOtps: Boolean = true,
         onlyExpiredOtps: Boolean = true,
         filterPromotions: Boolean = true,
-        filterSpam: Boolean = true
+        filterSpam: Boolean = true,
+        duplicateKeepStrategy: DuplicateKeepStrategy = DuplicateKeepStrategy.KEEP_OLDEST
     ): List<SmsMessageItem> {
         val now = System.currentTimeMillis()
 
         // Step 1: Detect Duplicates
-        // Thread-aware grouping: preserves RCS conversation thread continuity
+        // Thread-aware grouping: preserves RCS and SMS conversation thread continuity
         val normalizedGroups = mutableMapOf<String, MutableList<SmsMessageItem>>()
 
         for (msg in rawMessages) {
@@ -62,14 +65,21 @@ object SmsClassifier {
         val resultList = mutableListOf<SmsMessageItem>()
 
         for ((groupId, groupItems) in normalizedGroups) {
-            // Sort group items:
-            // For RCS chat messages, prioritize keeping the one with verified READ/DELIVERED status
-            // so thread receipts and session status in Google Messages remain intact.
-            val sorted = groupItems.sortedWith(
-                compareByDescending<SmsMessageItem> { it.rcsDeliveryStatus == RcsDeliveryStatus.READ }
-                    .thenByDescending { it.rcsDeliveryStatus == RcsDeliveryStatus.DELIVERED }
-                    .thenBy { it.date }
-            )
+            // Sort group items according to keep strategy:
+            // For RCS chat messages, prioritize keeping verified READ/DELIVERED status
+            val sorted = if (duplicateKeepStrategy == DuplicateKeepStrategy.KEEP_OLDEST) {
+                groupItems.sortedWith(
+                    compareByDescending<SmsMessageItem> { it.rcsDeliveryStatus == RcsDeliveryStatus.READ }
+                        .thenByDescending { it.rcsDeliveryStatus == RcsDeliveryStatus.DELIVERED }
+                        .thenBy { it.date }
+                )
+            } else {
+                groupItems.sortedWith(
+                    compareByDescending<SmsMessageItem> { it.rcsDeliveryStatus == RcsDeliveryStatus.READ }
+                        .thenByDescending { it.rcsDeliveryStatus == RcsDeliveryStatus.DELIVERED }
+                        .thenByDescending { it.date }
+                )
+            }
             val totalInGroup = sorted.size
 
             sorted.forEachIndexed { index, msg ->
@@ -85,7 +95,9 @@ object SmsClassifier {
                 if (isDuplicate && filterDuplicates) {
                     category = SmsCategory.DUPLICATE
                     matchReason = if (msg.isRcsChat || msg.protocol == MessageProtocol.RCS_CHAT) {
-                        "RCS Duplicate: Redundant chat copy #${index + 1} of $totalInGroup (Thread #${msg.threadId})"
+                        "RCS Duplicate in Thread #${msg.threadId}: Copy #${index + 1} of $totalInGroup (Master kept)"
+                    } else if (msg.threadId > 0) {
+                        "Duplicate in Thread #${msg.threadId}: Copy #${index + 1} of $totalInGroup from ${msg.address}"
                     } else {
                         "Duplicate: Identical copy #${index + 1} of $totalInGroup from ${msg.address}"
                     }
@@ -142,6 +154,35 @@ object SmsClassifier {
 
         // Return sorted by date descending (most recent first)
         return resultList.sortedByDescending { it.date }
+    }
+
+    /**
+     * Extracts clusters of duplicate messages grouped by conversation thread.
+     */
+    fun extractDuplicateThreadClusters(classifiedMessages: List<SmsMessageItem>): List<DuplicateThreadCluster> {
+        val clusters = mutableListOf<DuplicateThreadCluster>()
+        val byGroup = classifiedMessages
+            .filter { it.duplicateGroupId != null }
+            .groupBy { it.duplicateGroupId!! }
+
+        for ((groupId, items) in byGroup) {
+            val master = items.firstOrNull { !it.isDuplicateExtra } ?: items.first()
+            val duplicates = items.filter { it.isDuplicateExtra }
+            if (duplicates.isNotEmpty()) {
+                clusters.add(
+                    DuplicateThreadCluster(
+                        groupId = groupId,
+                        threadId = master.threadId,
+                        sender = master.address,
+                        snippet = master.body,
+                        masterMessage = master,
+                        duplicateCopies = duplicates,
+                        isRcs = master.isRcsChat || master.protocol == MessageProtocol.RCS_CHAT
+                    )
+                )
+            }
+        }
+        return clusters.sortedByDescending { it.duplicateCount }
     }
 
     private fun matchesCustomRule(msg: SmsMessageItem, rule: CustomFilterRule, now: Long): Boolean {

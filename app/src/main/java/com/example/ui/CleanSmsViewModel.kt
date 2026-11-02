@@ -43,6 +43,10 @@ data class CleanSmsUiState(
     val filterPromotions: Boolean = true,
     val filterSpam: Boolean = true,
     val applyCustomRules: Boolean = true,
+    // Duplicate thread fixing settings
+    val duplicateKeepStrategy: com.example.model.DuplicateKeepStrategy = com.example.model.DuplicateKeepStrategy.KEEP_OLDEST,
+    val groupByThreadsInDuplicates: Boolean = true,
+    val duplicateThreadClusters: List<com.example.model.DuplicateThreadCluster> = emptyList(),
     // Cloud settings
     val selectedCloudProvider: String = "Google Drive",
     val isGoogleDriveConnected: Boolean = true,
@@ -185,13 +189,16 @@ class CleanSmsViewModel(application: Application) : AndroidViewModel(application
                     filterOtps = _uiState.value.filterOtps,
                     onlyExpiredOtps = _uiState.value.onlyExpiredOtps,
                     filterPromotions = _uiState.value.filterPromotions,
-                    filterSpam = _uiState.value.filterSpam
+                    filterSpam = _uiState.value.filterSpam,
+                    duplicateKeepStrategy = _uiState.value.duplicateKeepStrategy
                 )
+                val clusters = SmsClassifier.extractDuplicateThreadClusters(classified)
 
                 _uiState.update {
                     it.copy(
                         allMessages = activeRaw,
                         classifiedMessages = classified,
+                        duplicateThreadClusters = clusters,
                         isScanning = false
                     )
                 }
@@ -208,9 +215,87 @@ class CleanSmsViewModel(application: Application) : AndroidViewModel(application
             filterOtps = _uiState.value.filterOtps,
             onlyExpiredOtps = _uiState.value.onlyExpiredOtps,
             filterPromotions = _uiState.value.filterPromotions,
-            filterSpam = _uiState.value.filterSpam
+            filterSpam = _uiState.value.filterSpam,
+            duplicateKeepStrategy = _uiState.value.duplicateKeepStrategy
         )
-        _uiState.update { it.copy(classifiedMessages = classified) }
+        val clusters = SmsClassifier.extractDuplicateThreadClusters(classified)
+        _uiState.update {
+            it.copy(
+                classifiedMessages = classified,
+                duplicateThreadClusters = clusters
+            )
+        }
+    }
+
+    fun setDuplicateKeepStrategy(strategy: com.example.model.DuplicateKeepStrategy) {
+        _uiState.update { it.copy(duplicateKeepStrategy = strategy) }
+        reclassifyCurrentMessages()
+    }
+
+    fun toggleGroupByThreads(enabled: Boolean) {
+        _uiState.update { it.copy(groupByThreadsInDuplicates = enabled) }
+    }
+
+    fun fixDuplicateThread(cluster: com.example.model.DuplicateThreadCluster) {
+        viewModelScope.launch {
+            val duplicateIds = cluster.duplicateCopies.map { it.id }.toSet()
+            val duplicates = _uiState.value.classifiedMessages.filter { duplicateIds.contains(it.id) }
+
+            if (duplicates.isEmpty()) return@launch
+
+            if (_uiState.value.autoBackupBeforeClean) {
+                cloudManager.createCloudBackup(
+                    messages = duplicates,
+                    rules = _uiState.value.customRules,
+                    provider = _uiState.value.selectedCloudProvider
+                )
+            }
+
+            // Move duplicate copies to quarantine
+            val entities = duplicates.map { QuarantineEntity.fromSmsMessageItem(it) }
+            dao.insertQuarantined(entities)
+
+            // Remove only the duplicate copies, preserving master message in existing thread!
+            val remaining = _uiState.value.allMessages.filterNot { duplicateIds.contains(it.id) }
+            _uiState.update {
+                it.copy(
+                    allMessages = remaining,
+                    snackbarMessage = "Fixed Thread #${cluster.threadId}: ${duplicates.size} duplicate(s) moved to Vault. Master copy kept."
+                )
+            }
+            reclassifyCurrentMessages()
+        }
+    }
+
+    fun fixAllDuplicateThreads() {
+        viewModelScope.launch {
+            val allDuplicates = _uiState.value.duplicateThreadClusters.flatMap { it.duplicateCopies }
+            if (allDuplicates.isEmpty()) {
+                _uiState.update { it.copy(snackbarMessage = "No duplicate threads to fix") }
+                return@launch
+            }
+
+            val duplicateIds = allDuplicates.map { it.id }.toSet()
+            if (_uiState.value.autoBackupBeforeClean) {
+                cloudManager.createCloudBackup(
+                    messages = allDuplicates,
+                    rules = _uiState.value.customRules,
+                    provider = _uiState.value.selectedCloudProvider
+                )
+            }
+
+            val entities = allDuplicates.map { QuarantineEntity.fromSmsMessageItem(it) }
+            dao.insertQuarantined(entities)
+
+            val remaining = _uiState.value.allMessages.filterNot { duplicateIds.contains(it.id) }
+            _uiState.update {
+                it.copy(
+                    allMessages = remaining,
+                    snackbarMessage = "Cleaned ${allDuplicates.size} duplicate message(s) across ${_uiState.value.duplicateThreadClusters.size} threads. Master copies preserved."
+                )
+            }
+            reclassifyCurrentMessages()
+        }
     }
 
     // Filter toggles

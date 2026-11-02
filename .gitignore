@@ -2,19 +2,37 @@
 .gradle
 .kotlin
 /local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
+local.properties
+/.idea/
 .DS_Store
 /build
+app/build
 /captures
 .externalNativeBuild
 .cxx
-local.properties
+
+# Secrets & Environment variables
 .env
+.env.*
+!.env.example
+secrets.properties
+
+# Google Services & Firebase configurations containing project IDs / API keys
+firebase-applet-config.json
+firebase_applet_config.xml
+google-services.json
+*credentials*.json
+*client_secret*.json
+auth-tokens.json
+
+# Signing & Keystore files
+*.keystore*
+*.jks
+*.p12
+*.pem
 debug.keystore
 debug.keystore.base64
+my-upload-key.jks
+
+# Build outputs
 .build-outputs/
