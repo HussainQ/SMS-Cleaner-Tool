@@ -1,0 +1,6 @@
+{
+  "name": "CleanSMS",
+  "description": "Smart text message de-duplicator and cleaner for Google Messages with custom rules, preview & restore, and cloud backup.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
