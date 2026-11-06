@@ -384,6 +384,19 @@ fun CleanSmsApp(
             onDismiss = { viewModel.showMessageDetails(null) }
         )
     }
+
+    // Explicit Device OAuth Authorization Dialog
+    if (uiState.serviceToAuthorize != null) {
+        com.example.ui.components.AuthorizeServiceDialog(
+            serviceDef = uiState.serviceToAuthorize!!,
+            availableAccounts = uiState.availableDeviceAccounts,
+            selectedAccount = uiState.selectedAccountForAuth,
+            isAuthorizing = uiState.isAuthorizingService,
+            onSelectAccount = { viewModel.setSelectedAccountForAuth(it) },
+            onConfirmAuthorization = { viewModel.confirmServiceAuthorization() },
+            onDismiss = { viewModel.dismissServiceAuthorization() }
+        )
+    }
 }
 
 @Composable

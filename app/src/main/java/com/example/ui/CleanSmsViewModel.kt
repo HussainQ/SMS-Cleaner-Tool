@@ -49,9 +49,15 @@ data class CleanSmsUiState(
     val duplicateThreadClusters: List<com.example.model.DuplicateThreadCluster> = emptyList(),
     // Cloud settings
     val selectedCloudProvider: String = "Google Drive",
-    val isGoogleDriveConnected: Boolean = true,
+    val isGoogleDriveConnected: Boolean = false,
     val isDropboxConnected: Boolean = false,
     val autoBackupBeforeClean: Boolean = true,
+    // On-device OAuth credentials vault
+    val authorizedOAuthCredentials: List<com.example.model.LocalOAuthCredential> = emptyList(),
+    val availableDeviceAccounts: List<String> = listOf("shqsid@gmail.com"),
+    val serviceToAuthorize: com.example.model.OAuthServiceDefinition? = null,
+    val selectedAccountForAuth: String = "shqsid@gmail.com",
+    val isAuthorizingService: Boolean = false,
     // Active dialogs
     val showPermanentDeleteDialog: Boolean = false,
     val deleteTargetMessages: List<SmsMessageItem> = emptyList(),
@@ -63,11 +69,14 @@ data class CleanSmsUiState(
     val snackbarMessage: String? = null
 )
 
-class CleanSmsViewModel(application: Application) : AndroidViewModel(application) {
+class CleanSmsViewModel(
+    application: Application,
+    private val repository: SmsRepository = SmsRepository(application),
+    private val cloudManager: CloudBackupManager = CloudBackupManager(application),
+    private val db: AppDatabase = AppDatabase.getInstance(application),
+    val deviceOAuthManager: com.example.cloud.DeviceOAuthManager = com.example.cloud.DeviceOAuthManager(application, db.cleanSmsDao())
+) : AndroidViewModel(application) {
 
-    private val repository = SmsRepository(application)
-    private val cloudManager = CloudBackupManager(application)
-    private val db = AppDatabase.getInstance(application)
     private val dao = db.cleanSmsDao()
 
     private val _uiState = MutableStateFlow(CleanSmsUiState())
@@ -143,10 +152,32 @@ class CleanSmsViewModel(application: Application) : AndroidViewModel(application
                 _uiState.update { it.copy(backupHistory = history) }
             }
         }
+
+        viewModelScope.launch {
+            deviceOAuthManager.authorizedCredentialsFlow.collect { creds ->
+                _uiState.update { state ->
+                    val hasDrive = creds.any { it.serviceId == com.example.cloud.DeviceOAuthManager.SERVICE_GOOGLE_DRIVE }
+                    val hasDropbox = creds.any { it.serviceId == com.example.cloud.DeviceOAuthManager.SERVICE_DROPBOX }
+                    state.copy(
+                        authorizedOAuthCredentials = creds,
+                        isGoogleDriveConnected = hasDrive,
+                        isDropboxConnected = hasDropbox
+                    )
+                }
+            }
+        }
     }
 
     private fun loadInitialData() {
         viewModelScope.launch {
+            val accounts = deviceOAuthManager.getDetectedDeviceAccounts()
+            _uiState.update {
+                it.copy(
+                    availableDeviceAccounts = accounts,
+                    selectedAccountForAuth = accounts.firstOrNull() ?: "shqsid@gmail.com"
+                )
+            }
+
             // Seed a default sample custom rule if empty
             val existingRules = dao.getAllRules()
             if (existingRules.isEmpty()) {
@@ -373,13 +404,22 @@ class CleanSmsViewModel(application: Application) : AndroidViewModel(application
                 return@launch
             }
 
-            // Auto-backup to Cloud if enabled
+            // Auto-backup to Cloud if enabled and authorized
             if (_uiState.value.autoBackupBeforeClean) {
-                cloudManager.createCloudBackup(
-                    messages = selected,
-                    rules = _uiState.value.customRules,
-                    provider = _uiState.value.selectedCloudProvider
-                )
+                val selectedProvider = _uiState.value.selectedCloudProvider
+                val serviceId = if (selectedProvider.contains("Dropbox", ignoreCase = true)) {
+                    com.example.cloud.DeviceOAuthManager.SERVICE_DROPBOX
+                } else {
+                    com.example.cloud.DeviceOAuthManager.SERVICE_GOOGLE_DRIVE
+                }
+                val isAuth = _uiState.value.authorizedOAuthCredentials.any { it.serviceId == serviceId }
+                if (isAuth) {
+                    cloudManager.createCloudBackup(
+                        messages = selected,
+                        rules = _uiState.value.customRules,
+                        provider = _uiState.value.selectedCloudProvider
+                    )
+                }
             }
 
             // Save to Room Quarantine table
@@ -565,7 +605,7 @@ class CleanSmsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    // Cloud Backup & Restore
+    // Cloud Backup & Device OAuth Secret Management
     fun setCloudProvider(provider: String) {
         _uiState.update { it.copy(selectedCloudProvider = provider) }
     }
@@ -574,17 +614,96 @@ class CleanSmsViewModel(application: Application) : AndroidViewModel(application
         _uiState.update { it.copy(autoBackupBeforeClean = enabled) }
     }
 
-    fun toggleDropboxConnection() {
+    fun requestServiceAuthorization(serviceDef: com.example.model.OAuthServiceDefinition) {
+        val account = _uiState.value.availableDeviceAccounts.firstOrNull() ?: serviceDef.defaultAccount
         _uiState.update {
-            val newStatus = !it.isDropboxConnected
             it.copy(
-                isDropboxConnected = newStatus,
-                snackbarMessage = if (newStatus) "Dropbox connected successfully" else "Dropbox disconnected"
+                serviceToAuthorize = serviceDef,
+                selectedAccountForAuth = account
             )
         }
     }
 
+    fun setSelectedAccountForAuth(account: String) {
+        _uiState.update { it.copy(selectedAccountForAuth = account) }
+    }
+
+    fun dismissServiceAuthorization() {
+        _uiState.update { it.copy(serviceToAuthorize = null, isAuthorizingService = false) }
+    }
+
+    fun confirmServiceAuthorization() {
+        val serviceDef = _uiState.value.serviceToAuthorize ?: return
+        val account = _uiState.value.selectedAccountForAuth
+        _uiState.update { it.copy(isAuthorizingService = true) }
+
+        viewModelScope.launch {
+            val result = deviceOAuthManager.pullAndStoreDeviceOAuthSecret(
+                serviceId = serviceDef.id,
+                userConfirmedAuthorization = true,
+                selectedAccount = account
+            )
+
+            result.onSuccess { cred ->
+                _uiState.update {
+                    it.copy(
+                        serviceToAuthorize = null,
+                        isAuthorizingService = false,
+                        selectedCloudProvider = cred.serviceName,
+                        snackbarMessage = "Authorized ${cred.serviceName}. On-device OAuth secret saved in local vault."
+                    )
+                }
+            }.onFailure { err ->
+                _uiState.update {
+                    it.copy(
+                        serviceToAuthorize = null,
+                        isAuthorizingService = false,
+                        snackbarMessage = "Authorization failed: ${err.message}"
+                    )
+                }
+            }
+        }
+    }
+
+    fun revokeServiceAuthorization(serviceId: String) {
+        viewModelScope.launch {
+            deviceOAuthManager.revokeAuthorization(serviceId)
+            val serviceName = if (serviceId == com.example.cloud.DeviceOAuthManager.SERVICE_DROPBOX) "Dropbox" else "Google Drive"
+            _uiState.update {
+                it.copy(snackbarMessage = "Revoked $serviceName authorization. Secret purged from device.")
+            }
+        }
+    }
+
+    fun purgeAllDeviceSecrets() {
+        viewModelScope.launch {
+            deviceOAuthManager.purgeAllSecrets()
+            _uiState.update {
+                it.copy(snackbarMessage = "All local OAuth secrets permanently purged from device.")
+            }
+        }
+    }
+
     fun performManualCloudBackup() {
+        val selectedProvider = _uiState.value.selectedCloudProvider
+        val serviceId = if (selectedProvider.contains("Dropbox", ignoreCase = true)) {
+            com.example.cloud.DeviceOAuthManager.SERVICE_DROPBOX
+        } else {
+            com.example.cloud.DeviceOAuthManager.SERVICE_GOOGLE_DRIVE
+        }
+
+        val isAuthorized = _uiState.value.authorizedOAuthCredentials.any { it.serviceId == serviceId }
+        if (!isAuthorized) {
+            val serviceDef = deviceOAuthManager.supportedServices.find { it.id == serviceId }
+            if (serviceDef != null) {
+                requestServiceAuthorization(serviceDef)
+            }
+            _uiState.update {
+                it.copy(snackbarMessage = "Please authorize $selectedProvider connection first. Secrets are pulled only when authorized.")
+            }
+            return
+        }
+
         viewModelScope.launch {
             val messagesToBackup = if (_uiState.value.quarantinedMessages.isNotEmpty()) {
                 _uiState.value.quarantinedMessages

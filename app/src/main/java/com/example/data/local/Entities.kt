@@ -90,3 +90,47 @@ data class BackupRecordEntity(
     val sizeBytes: Long,
     val fileContentJson: String
 )
+
+@Entity(tableName = "oauth_credentials")
+data class OAuthCredentialEntity(
+    @PrimaryKey val serviceId: String,
+    val serviceName: String,
+    val accountName: String,
+    val accessToken: String,
+    val tokenType: String,
+    val scopes: String,
+    val authorizedAt: Long,
+    val expiresAt: Long,
+    val isLocallyStored: Boolean = true
+) {
+    fun toLocalCredential(): com.example.model.LocalOAuthCredential {
+        return com.example.model.LocalOAuthCredential(
+            serviceId = serviceId,
+            serviceName = serviceName,
+            accountName = accountName,
+            accessToken = accessToken,
+            tokenType = tokenType,
+            scopes = scopes,
+            authorizedAt = authorizedAt,
+            expiresAt = expiresAt,
+            isLocallyStored = isLocallyStored
+        )
+    }
+
+    companion object {
+        fun fromLocalCredential(cred: com.example.model.LocalOAuthCredential): OAuthCredentialEntity {
+            return OAuthCredentialEntity(
+                serviceId = cred.serviceId,
+                serviceName = cred.serviceName,
+                accountName = cred.accountName,
+                accessToken = cred.accessToken,
+                tokenType = cred.tokenType,
+                scopes = cred.scopes,
+                authorizedAt = cred.authorizedAt,
+                expiresAt = cred.expiresAt,
+                isLocallyStored = cred.isLocallyStored
+            )
+        }
+    }
+}
+

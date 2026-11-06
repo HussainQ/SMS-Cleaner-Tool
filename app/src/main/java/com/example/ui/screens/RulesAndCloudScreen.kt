@@ -413,7 +413,7 @@ private fun CloudBackupPane(
             )
         }
 
-        // Secrets & Security Status Banner
+        // Secrets & Security Status Banner with Local Vault Policy
         Surface(
             color = CardDark,
             shape = RoundedCornerShape(12.dp),
@@ -432,14 +432,14 @@ private fun CloudBackupPane(
                     modifier = Modifier.size(16.dp)
                 )
                 Text(
-                    text = "Test Sandbox Mode: Safe test credentials in use. Zero private secrets in Git.",
+                    text = "On-Device OAuth Vault: Secrets pulled if and only if authorized. Stored strictly on this device.",
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
 
-        // Cloud Storage Providers Card
+        // Cloud Storage Providers with OAuth Authorization Controls
         Card(
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = CardDark),
@@ -447,80 +447,214 @@ private fun CloudBackupPane(
         ) {
             Column(
                 modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
+                val googleDriveCred = uiState.authorizedOAuthCredentials.find { it.serviceId == com.example.cloud.DeviceOAuthManager.SERVICE_GOOGLE_DRIVE }
+                val isGoogleDriveAuth = googleDriveCred != null
+
+                val dropboxCred = uiState.authorizedOAuthCredentials.find { it.serviceId == com.example.cloud.DeviceOAuthManager.SERVICE_DROPBOX }
+                val isDropboxAuth = dropboxCred != null
+
                 // Google Drive Row
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Surface(
-                            color = CyanAccent.copy(alpha = 0.15f),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.size(38.dp)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.weight(1f)
                         ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.CloudQueue, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(22.dp))
+                            Surface(
+                                color = CyanAccent.copy(alpha = 0.15f),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.size(38.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.CloudQueue, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(22.dp))
+                                }
+                            }
+                            Column {
+                                Text("Google Drive", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextPrimary)
+                                if (isGoogleDriveAuth) {
+                                    Text(
+                                        text = "Authorized • ${googleDriveCred!!.accountName}",
+                                        fontSize = 11.sp,
+                                        color = TealAccent
+                                    )
+                                    Text(
+                                        text = "Local Key: ${googleDriveCred.maskedToken} (Private Storage)",
+                                        fontSize = 10.sp,
+                                        color = TextSecondary
+                                    )
+                                } else {
+                                    Text(
+                                        text = "Not Authorized • Device secret not pulled",
+                                        fontSize = 11.sp,
+                                        color = TextMuted
+                                    )
+                                }
                             }
                         }
-                        Column {
-                            Text("Google Drive", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextPrimary)
-                            Text("OAuth Authorized • Ready", fontSize = 11.sp, color = TealAccent)
+
+                        if (isGoogleDriveAuth) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                TextButton(
+                                    onClick = { viewModel.revokeServiceAuthorization(com.example.cloud.DeviceOAuthManager.SERVICE_GOOGLE_DRIVE) },
+                                    modifier = Modifier.testTag("revoke_google_drive_btn")
+                                ) {
+                                    Text("Revoke", fontSize = 11.sp, color = Color(0xFFEF5350))
+                                }
+                                RadioButton(
+                                    selected = uiState.selectedCloudProvider == "Google Drive",
+                                    onClick = { viewModel.setCloudProvider("Google Drive") },
+                                    modifier = Modifier.testTag("radio_google_drive")
+                                )
+                            }
+                        } else {
+                            Button(
+                                onClick = {
+                                    val def = viewModel.deviceOAuthManager.supportedServices.find { it.id == com.example.cloud.DeviceOAuthManager.SERVICE_GOOGLE_DRIVE }
+                                    if (def != null) viewModel.requestServiceAuthorization(def)
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = CyanAccent),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                modifier = Modifier.testTag("auth_google_drive_btn")
+                            ) {
+                                Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(14.dp), tint = Navy900)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Authorize", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Navy900)
+                            }
                         }
                     }
-
-                    RadioButton(
-                        selected = uiState.selectedCloudProvider == "Google Drive",
-                        onClick = { viewModel.setCloudProvider("Google Drive") }
-                    )
                 }
 
                 HorizontalDivider(color = CardBorder.copy(alpha = 0.5f))
 
                 // Dropbox Row
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Surface(
+                                color = PurpleAccent.copy(alpha = 0.15f),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.size(38.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.Cloud, contentDescription = null, tint = PurpleAccent, modifier = Modifier.size(22.dp))
+                                }
+                            }
+                            Column {
+                                Text("Dropbox", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextPrimary)
+                                if (isDropboxAuth) {
+                                    Text(
+                                        text = "Authorized • ${dropboxCred!!.accountName}",
+                                        fontSize = 11.sp,
+                                        color = TealAccent
+                                    )
+                                    Text(
+                                        text = "Local Key: ${dropboxCred.maskedToken} (Private Storage)",
+                                        fontSize = 10.sp,
+                                        color = TextSecondary
+                                    )
+                                } else {
+                                    Text(
+                                        text = "Not Authorized • Device secret not pulled",
+                                        fontSize = 11.sp,
+                                        color = TextMuted
+                                    )
+                                }
+                            }
+                        }
+
+                        if (isDropboxAuth) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                TextButton(
+                                    onClick = { viewModel.revokeServiceAuthorization(com.example.cloud.DeviceOAuthManager.SERVICE_DROPBOX) },
+                                    modifier = Modifier.testTag("revoke_dropbox_btn")
+                                ) {
+                                    Text("Revoke", fontSize = 11.sp, color = Color(0xFFEF5350))
+                                }
+                                RadioButton(
+                                    selected = uiState.selectedCloudProvider == "Dropbox",
+                                    onClick = { viewModel.setCloudProvider("Dropbox") },
+                                    modifier = Modifier.testTag("radio_dropbox")
+                                )
+                            }
+                        } else {
+                            Button(
+                                onClick = {
+                                    val def = viewModel.deviceOAuthManager.supportedServices.find { it.id == com.example.cloud.DeviceOAuthManager.SERVICE_DROPBOX }
+                                    if (def != null) viewModel.requestServiceAuthorization(def)
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = PurpleAccent),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                modifier = Modifier.testTag("auth_dropbox_btn")
+                            ) {
+                                Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color.White)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Authorize", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // On-Device Vault Summary & Purge Card
+        if (uiState.authorizedOAuthCredentials.isNotEmpty()) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
+                shape = RoundedCornerShape(12.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, CardBorder.copy(alpha = 0.4f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Surface(
-                            color = PurpleAccent.copy(alpha = 0.15f),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.size(38.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.Cloud, contentDescription = null, tint = PurpleAccent, modifier = Modifier.size(22.dp))
-                            }
-                        }
-                        Column {
-                            Text("Dropbox", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextPrimary)
-                            Text(
-                                text = if (uiState.isDropboxConnected) "Connected" else "Tap toggle to link account",
-                                fontSize = 11.sp,
-                                color = if (uiState.isDropboxConnected) TealAccent else TextMuted
-                            )
-                        }
+                        Icon(
+                            Icons.Default.VpnKey,
+                            contentDescription = null,
+                            tint = TealAccent,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "${uiState.authorizedOAuthCredentials.size} OAuth secret(s) stored locally",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
                     }
 
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Switch(
-                            checked = uiState.isDropboxConnected,
-                            onCheckedChange = { viewModel.toggleDropboxConnection() },
-                            modifier = Modifier.height(26.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        RadioButton(
-                            selected = uiState.selectedCloudProvider == "Dropbox",
-                            onClick = { viewModel.setCloudProvider("Dropbox") }
+                    TextButton(
+                        onClick = { viewModel.purgeAllDeviceSecrets() },
+                        modifier = Modifier.testTag("purge_all_secrets_btn")
+                    ) {
+                        Text(
+                            text = "Purge All",
+                            fontSize = 11.sp,
+                            color = Color(0xFFEF5350),
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 }

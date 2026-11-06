@@ -50,4 +50,24 @@ interface CleanSmsDao {
 
     @Query("DELETE FROM backup_records WHERE id = :id")
     suspend fun deleteBackupById(id: String)
+
+    // OAuth Credentials queries
+    @Query("SELECT * FROM oauth_credentials ORDER BY authorizedAt DESC")
+    fun getAllCredentialsFlow(): Flow<List<OAuthCredentialEntity>>
+
+    @Query("SELECT * FROM oauth_credentials ORDER BY authorizedAt DESC")
+    suspend fun getAllCredentials(): List<OAuthCredentialEntity>
+
+    @Query("SELECT * FROM oauth_credentials WHERE serviceId = :serviceId LIMIT 1")
+    suspend fun getCredentialByServiceId(serviceId: String): OAuthCredentialEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertCredential(credential: OAuthCredentialEntity)
+
+    @Query("DELETE FROM oauth_credentials WHERE serviceId = :serviceId")
+    suspend fun deleteCredentialByServiceId(serviceId: String)
+
+    @Query("DELETE FROM oauth_credentials")
+    suspend fun clearAllCredentials()
 }
+
