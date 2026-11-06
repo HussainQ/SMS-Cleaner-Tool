@@ -26,8 +26,12 @@ import kotlinx.coroutines.withContext
 
 data class CleanSmsUiState(
     val isDemoMode: Boolean = true,
+    val hasReadSmsPermission: Boolean = false,
+    val hasWriteSmsPermission: Boolean = false,
     val hasSmsPermission: Boolean = false,
     val isDefaultSmsApp: Boolean = false,
+    val showPermissionRationaleDialog: Boolean = false,
+    val showPermissionPermanentlyDeniedDialog: Boolean = false,
     val allMessages: List<SmsMessageItem> = emptyList(),
     val classifiedMessages: List<SmsMessageItem> = emptyList(),
     val quarantinedMessages: List<SmsMessageItem> = emptyList(),
@@ -94,11 +98,39 @@ class CleanSmsViewModel(
         _uiState.update { it.copy(isDefaultSmsApp = isDefault) }
     }
 
-    fun setSmsPermissionGranted(granted: Boolean) {
-        _uiState.update { it.copy(hasSmsPermission = granted) }
-        if (granted && !_uiState.value.isDemoMode) {
+    fun setSmsPermissions(readGranted: Boolean, writeGranted: Boolean) {
+        _uiState.update {
+            it.copy(
+                hasReadSmsPermission = readGranted,
+                hasWriteSmsPermission = writeGranted,
+                hasSmsPermission = readGranted,
+                isDemoMode = if (readGranted) false else it.isDemoMode,
+                showPermissionRationaleDialog = false
+            )
+        }
+        if (readGranted) {
             refreshMessages()
         }
+    }
+
+    fun setSmsPermissionGranted(granted: Boolean) {
+        setSmsPermissions(readGranted = granted, writeGranted = granted)
+    }
+
+    fun openPermissionRationaleDialog() {
+        _uiState.update { it.copy(showPermissionRationaleDialog = true) }
+    }
+
+    fun dismissPermissionRationaleDialog() {
+        _uiState.update { it.copy(showPermissionRationaleDialog = false) }
+    }
+
+    fun openPermissionPermanentlyDeniedDialog() {
+        _uiState.update { it.copy(showPermissionPermanentlyDeniedDialog = true) }
+    }
+
+    fun dismissPermissionPermanentlyDeniedDialog() {
+        _uiState.update { it.copy(showPermissionPermanentlyDeniedDialog = false) }
     }
 
     fun setDemoMode(isDemo: Boolean) {
@@ -808,6 +840,10 @@ class CleanSmsViewModel(
 
     fun showMessageDetails(message: SmsMessageItem?) {
         _uiState.update { it.copy(detailMessage = message) }
+    }
+
+    fun showSnackbar(message: String) {
+        _uiState.update { it.copy(snackbarMessage = message) }
     }
 
     fun clearSnackbar() {

@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import android.content.Intent
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -98,6 +99,12 @@ fun ScannerScreen(
                         context = context
                     )
 
+                    SmsPermissionsBanner(
+                        hasReadPermission = uiState.hasReadSmsPermission,
+                        hasWritePermission = uiState.hasWriteSmsPermission,
+                        onRequestSmsPermission = onRequestSmsPermission
+                    )
+
                     DetectionRulesCard(
                         uiState = uiState,
                         viewModel = viewModel,
@@ -135,6 +142,12 @@ fun ScannerScreen(
                     isDefaultSmsApp = uiState.isDefaultSmsApp,
                     onRequestDefaultSmsRole = onRequestDefaultSmsRole,
                     context = context
+                )
+
+                SmsPermissionsBanner(
+                    hasReadPermission = uiState.hasReadSmsPermission,
+                    hasWritePermission = uiState.hasWriteSmsPermission,
+                    onRequestSmsPermission = onRequestSmsPermission
                 )
 
                 DetectionRulesCard(
@@ -210,10 +223,11 @@ private fun DataSourceCard(
                 Switch(
                     checked = !uiState.isDemoMode,
                     onCheckedChange = { isDevice ->
-                        if (isDevice && !uiState.hasSmsPermission) {
+                        if (isDevice && (!uiState.hasReadSmsPermission || !uiState.hasWriteSmsPermission)) {
                             onRequestSmsPermission()
+                        } else {
+                            viewModel.setDemoMode(!isDevice)
                         }
-                        viewModel.setDemoMode(!isDevice)
                     },
                     modifier = Modifier.testTag("demo_mode_switch")
                 )
@@ -619,3 +633,141 @@ private fun FilterToggleRow(
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
+
+@Composable
+fun SmsPermissionsBanner(
+    hasReadPermission: Boolean,
+    hasWritePermission: Boolean,
+    onRequestSmsPermission: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val bothGranted = hasReadPermission && hasWritePermission
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (bothGranted) TealAccent.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+        ),
+        border = CardDefaults.outlinedCardBorder().copy(
+            brush = androidx.compose.ui.graphics.SolidColor(
+                if (bothGranted) TealAccent.copy(alpha = 0.4f) else AmberAccent.copy(alpha = 0.4f)
+            )
+        ),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Surface(
+                    color = if (bothGranted) TealAccent.copy(alpha = 0.2f) else AmberAccent.copy(alpha = 0.2f),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = if (bothGranted) Icons.Default.VerifiedUser else Icons.Default.Security,
+                            contentDescription = null,
+                            tint = if (bothGranted) TealAccent else AmberAccent,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (bothGranted) "SMS Permissions Active" else "SMS Runtime Permissions",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = if (bothGranted) "App can scan, categorize, and clean inbox" else "Access required to scan and clean real messages",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // Status badges for READ_SMS and WRITE_SMS
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // READ_SMS badge
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (hasReadPermission) TealAccent.copy(alpha = 0.15f) else AmberAccent.copy(alpha = 0.15f),
+                    border = BorderStroke(1.dp, if (hasReadPermission) TealAccent.copy(alpha = 0.4f) else AmberAccent.copy(alpha = 0.4f)),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (hasReadPermission) Icons.Default.Check else Icons.Default.Close,
+                            contentDescription = null,
+                            tint = if (hasReadPermission) TealAccent else AmberAccent,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = "READ_SMS",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (hasReadPermission) TealAccent else AmberAccent
+                        )
+                    }
+                }
+
+                // WRITE_SMS badge
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (hasWritePermission) TealAccent.copy(alpha = 0.15f) else AmberAccent.copy(alpha = 0.15f),
+                    border = BorderStroke(1.dp, if (hasWritePermission) TealAccent.copy(alpha = 0.4f) else AmberAccent.copy(alpha = 0.4f)),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (hasWritePermission) Icons.Default.Check else Icons.Default.Close,
+                            contentDescription = null,
+                            tint = if (hasWritePermission) TealAccent else AmberAccent,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = "WRITE_SMS",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (hasWritePermission) TealAccent else AmberAccent
+                        )
+                    }
+                }
+            }
+
+            if (!bothGranted) {
+                Button(
+                    onClick = onRequestSmsPermission,
+                    colors = ButtonDefaults.buttonColors(containerColor = CyanAccent),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(40.dp)
+                        .testTag("request_sms_permissions_banner_btn")
+                ) {
+                    Icon(Icons.Default.LockOpen, contentDescription = null, tint = Navy900, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Request SMS Permissions", color = Navy900, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            }
+        }
+    }
+}
+

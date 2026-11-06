@@ -51,6 +51,8 @@ enum class NavigationTab(val title: String, val icon: androidx.compose.ui.graphi
     RULES_CLOUD("Rules & Cloud", Icons.Default.Tune)
 }
 
+const val PERMISSION_WRITE_SMS = "android.permission.WRITE_SMS"
+
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -76,21 +78,79 @@ fun CleanSmsApp(
 
     var currentTab by remember { mutableStateOf(NavigationTab.SCANNER) }
 
-    // Check initial permission
-    LaunchedEffect(Unit) {
-        val granted = ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.READ_SMS
-        ) == PackageManager.PERMISSION_GRANTED
-        viewModel.setSmsPermissionGranted(granted)
-        viewModel.checkTelephonyState()
+    // Check initial permissions and re-check on lifecycle resume
+    val checkPermissions = remember(context) {
+        {
+            val readGranted = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.READ_SMS
+            ) == PackageManager.PERMISSION_GRANTED
+            val writeGranted = ContextCompat.checkSelfPermission(
+                context,
+                PERMISSION_WRITE_SMS
+            ) == PackageManager.PERMISSION_GRANTED
+            viewModel.setSmsPermissions(readGranted = readGranted, writeGranted = writeGranted)
+            viewModel.checkTelephonyState()
+        }
     }
 
-    // Permission launcher for READ_SMS
-    val smsPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        viewModel.setSmsPermissionGranted(isGranted)
+    LaunchedEffect(Unit) {
+        checkPermissions()
+    }
+
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                checkPermissions()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    // Permission launcher specifically requesting READ_SMS and WRITE_SMS
+    val smsPermissionsLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissionsMap ->
+        val readGranted = permissionsMap[Manifest.permission.READ_SMS] == true
+        val writeGranted = permissionsMap[PERMISSION_WRITE_SMS] == true
+        val bothGranted = readGranted && writeGranted
+        val activity = context as? androidx.activity.ComponentActivity
+
+        viewModel.setSmsPermissions(readGranted = readGranted, writeGranted = writeGranted)
+
+        if (bothGranted) {
+            viewModel.showSnackbar("READ_SMS & WRITE_SMS permissions granted. Device inbox active.")
+        } else if (activity != null) {
+            val shouldShowRead = androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.READ_SMS)
+            val shouldShowWrite = androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(activity, PERMISSION_WRITE_SMS)
+            if (!shouldShowRead && !shouldShowWrite && !readGranted) {
+                // Permanently denied (or don't ask again checked)
+                viewModel.openPermissionPermanentlyDeniedDialog()
+            } else {
+                viewModel.openPermissionRationaleDialog()
+            }
+        }
+    }
+
+    val requestSmsPermissionsAction: () -> Unit = remember(smsPermissionsLauncher) {
+        {
+            val readGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
+            val writeGranted = ContextCompat.checkSelfPermission(context, PERMISSION_WRITE_SMS) == PackageManager.PERMISSION_GRANTED
+            if (readGranted && writeGranted) {
+                viewModel.setSmsPermissions(readGranted = true, writeGranted = true)
+            } else {
+                smsPermissionsLauncher.launch(
+                    arrayOf(
+                        Manifest.permission.READ_SMS,
+                        PERMISSION_WRITE_SMS
+                    )
+                )
+            }
+        }
     }
 
     // Activity launcher for default SMS app role request
@@ -226,7 +286,7 @@ fun CleanSmsApp(
                             currentTab = currentTab,
                             uiState = uiState,
                             viewModel = viewModel,
-                            onRequestSmsPermission = { smsPermissionLauncher.launch(Manifest.permission.READ_SMS) },
+                            onRequestSmsPermission = requestSmsPermissionsAction,
                             onRequestDefaultSmsRole = {
                                 val intent = TelephonyManagerHelper.createRequestDefaultSmsIntent(context)
                                 defaultSmsLauncher.launch(intent)
@@ -337,7 +397,7 @@ fun CleanSmsApp(
                         currentTab = currentTab,
                         uiState = uiState,
                         viewModel = viewModel,
-                        onRequestSmsPermission = { smsPermissionLauncher.launch(Manifest.permission.READ_SMS) },
+                        onRequestSmsPermission = requestSmsPermissionsAction,
                         onRequestDefaultSmsRole = {
                             val intent = TelephonyManagerHelper.createRequestDefaultSmsIntent(context)
                             defaultSmsLauncher.launch(intent)
@@ -395,6 +455,34 @@ fun CleanSmsApp(
             onSelectAccount = { viewModel.setSelectedAccountForAuth(it) },
             onConfirmAuthorization = { viewModel.confirmServiceAuthorization() },
             onDismiss = { viewModel.dismissServiceAuthorization() }
+        )
+    }
+
+    // SMS Permissions Educational Rationale Dialog
+    if (uiState.showPermissionRationaleDialog) {
+        com.example.ui.components.SmsPermissionRationaleDialog(
+            hasReadPermission = uiState.hasReadSmsPermission,
+            hasWritePermission = uiState.hasWriteSmsPermission,
+            onRequestPermissions = {
+                viewModel.dismissPermissionRationaleDialog()
+                requestSmsPermissionsAction()
+            },
+            onContinueInDemo = {
+                viewModel.dismissPermissionRationaleDialog()
+                viewModel.setDemoMode(true)
+            },
+            onDismiss = { viewModel.dismissPermissionRationaleDialog() }
+        )
+    }
+
+    // SMS Permissions Settings Redirect Dialog (Permanently Denied)
+    if (uiState.showPermissionPermanentlyDeniedDialog) {
+        com.example.ui.components.SmsPermissionSettingsDialog(
+            onDismiss = { viewModel.dismissPermissionPermanentlyDeniedDialog() },
+            onContinueInDemo = {
+                viewModel.dismissPermissionPermanentlyDeniedDialog()
+                viewModel.setDemoMode(true)
+            }
         )
     }
 }
