@@ -264,13 +264,35 @@ fun CleanSmsApp(
                         TopAppBar(
                             title = {
                                 Column {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text(
+                                            text = "CleanSMS • ${currentTab.title}",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 18.sp
+                                        )
+                                        Surface(
+                                            color = Color(0xFFFFB300).copy(alpha = 0.16f),
+                                            shape = CircleShape,
+                                            border = androidx.compose.foundation.BorderStroke(
+                                                1.dp,
+                                                Color(0xFFFFB300).copy(alpha = 0.5f)
+                                            ),
+                                            modifier = Modifier.testTag("prerelease_badge_wide")
+                                        ) {
+                                            Text(
+                                                text = "PRE-RELEASE v${BuildConfig.VERSION_NAME} • LOCAL TEST ONLY",
+                                                color = Color(0xFFFFB300),
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
                                     Text(
-                                        text = "CleanSMS • ${currentTab.title}",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 18.sp
-                                    )
-                                    Text(
-                                        text = "Google Messages Cleaner & Duplication Vault",
+                                        text = "Non-Production Build • For Local Device Testing Only",
                                         fontSize = 12.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -329,13 +351,35 @@ fun CleanSmsApp(
                                     }
                                 }
                                 Column {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text(
+                                            text = "CleanSMS",
+                                            fontWeight = FontWeight.ExtraBold,
+                                            fontSize = 18.sp
+                                        )
+                                        Surface(
+                                            color = Color(0xFFFFB300).copy(alpha = 0.16f),
+                                            shape = CircleShape,
+                                            border = androidx.compose.foundation.BorderStroke(
+                                                1.dp,
+                                                Color(0xFFFFB300).copy(alpha = 0.5f)
+                                            ),
+                                            modifier = Modifier.testTag("prerelease_badge_compact")
+                                        ) {
+                                            Text(
+                                                text = "PRE v${BuildConfig.VERSION_NAME}",
+                                                color = Color(0xFFFFB300),
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                                            )
+                                        }
+                                    }
                                     Text(
-                                        text = "CleanSMS",
-                                        fontWeight = FontWeight.ExtraBold,
-                                        fontSize = 18.sp
-                                    )
-                                    Text(
-                                        text = "Google Messages Cleaner",
+                                        text = "Non-Production • Local Device Testing",
                                         fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )

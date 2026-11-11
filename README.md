@@ -8,7 +8,12 @@
 [![Min SDK](https://img.shields.io/badge/Min%20SDK-24%20(Android%207.0)-informational?style=flat-square)](https://developer.android.com/about/versions)
 [![Target SDK](https://img.shields.io/badge/Target%20SDK-36%20(Android%2016)-success?style=flat-square)](https://developer.android.com/about/versions)
 [![Privacy](https://img.shields.io/badge/Privacy-100%25%20On--Device-success?style=flat-square&logo=shield)](https://github.com)
+[![Pre-Release](https://img.shields.io/badge/Pre--Release-v1.5.0--pre.1%20(Local%20Test%20Only)-amber?style=flat-square)](RELEASE_NOTES.md)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue?style=flat-square)](LICENSE)
+
+> [!WARNING]
+> **Current Pre-Release (`v1.5.0-pre.1`) — Non-Production / Local Device Testing Only**:
+> This repository's active pre-release (`v1.5.0-pre.1`, `versionCode = 10500`) is designated strictly for **non-production evaluation and testing on a local Android device**. See [`RELEASE_NOTES.md`](RELEASE_NOTES.md) and [`.github/workflows/prerelease.yml`](.github/workflows/prerelease.yml) for full details and SHA-256 verification.
 
 ---
 
@@ -115,7 +120,7 @@ $$\text{Version Code} = (\text{MAJOR} \times 10000) + (\text{MINOR} \times 100) 
 | `v1.2.0` | `1.2.0` | `10200` | Beta | RCS message support, thread cluster deduplication, read receipt preservation |
 | `v1.3.0` | `1.3.0` | `10300` | Beta | Reactive foldable & tablet layouts, search bar, secrets audit |
 | `v1.4.0` | `1.4.0` | `10400` | Beta | On-device OAuth secret pulling, user authorization gate, local vault storage |
-| `v1.5.0` | `1.5.0` | `10500` | Stable / Production | Android Runtime Permissions flow for `READ_SMS` & `WRITE_SMS` |
+| `v1.5.0-pre.1` | `1.5.0-pre.1` | `10500` | **Pre-Release (Non-Production • Local Device Test Only)** | Android Runtime & Manifest SMS Permissions (`READ_SMS`, `RECEIVE_SMS`, `WRITE_SMS`), ViewModel Factory fix, local testing APK |
 
 ### Release Tracks
 
