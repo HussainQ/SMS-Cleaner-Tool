@@ -2,11 +2,13 @@ name: GitHub Pre-Release (Non-Production Local Device Testing)
 
 on:
   push:
+    branches:
+      - main
+      - master
     tags:
-      - 'v*-pre.*'
-      - 'v*-beta.*'
-      - 'v*-rc.*'
-      - 'v*-alpha.*'
+      - 'v*'
+  release:
+    types: [published, created, edited, prereleased]
   workflow_dispatch:
     inputs:
       tag_name:
@@ -26,14 +28,46 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      - name: Set up JDK 21 (Required for Android SDK 36 & Robolectric)
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
           cache: 'gradle'
 
-      - name: Run Unit & Robolectric Verification Suite
+      - name: Cache Robolectric Android SDK 36 Runtime
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository/org/robolectric/android-all-instrumented
+          key: robolectric-android-all-16-robolectric-13921718-i7
+
+      - name: Pre-fetch Robolectric SDK 36 Jar (Prevent Maven Central Rate Limit)
+        run: |
+          M2_DIR="$HOME/.m2/repository/org/robolectric/android-all-instrumented/16-robolectric-13921718-i7"
+          mkdir -p "$M2_DIR"
+          BASE_URL="https://repo1.maven.org/maven2/org/robolectric/android-all-instrumented/16-robolectric-13921718-i7"
+          for ext in pom pom.sha512 jar jar.sha512; do
+            FILE="android-all-instrumented-16-robolectric-13921718-i7.${ext}"
+            if [ ! -s "$M2_DIR/$FILE" ]; then
+              curl -fSL --retry 5 --retry-delay 3 --retry-all-errors "$BASE_URL/$FILE" -o "$M2_DIR/$FILE"
+            fi
+          done
+
+      - name: Ensure Local Testing Debug Keystore Exists
+        run: |
+          if [ ! -f debug.keystore ]; then
+            keytool -genkeypair -v \
+              -keystore debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+      - name: Run Gradle and Robolectric Verification Suite
         run: gradle :app:testDebugUnitTest
 
       - name: Assemble Local Testing Pre-Release APK
@@ -42,7 +76,16 @@ jobs:
       - name: Prepare Pre-Release Artifacts & Checksums
         id: artifacts
         run: |
-          TAG="${{ github.event.inputs.tag_name || github.ref_name }}"
+          if [ -n "${{ github.event.inputs.tag_name }}" ]; then
+            TAG="${{ github.event.inputs.tag_name }}"
+          elif [ -n "${{ github.event.release.tag_name }}" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG="${{ github.ref_name }}"
+          else
+            TAG="v1.5.0-pre.1"
+          fi
+
           APK_SOURCE="app/build/outputs/apk/debug/app-debug.apk"
           APK_DEST="CleanSMS-${TAG}-nonprod-local-test.apk"
           cp "$APK_SOURCE" "$APK_DEST"
@@ -63,3 +106,15 @@ jobs:
           files: |
             ${{ steps.artifacts.outputs.apk_file }}
             ${{ steps.artifacts.outputs.sha_file }}
+
+      - name: Attach APK to Any Existing Manual Releases in Repository
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          APK_FILE="${{ steps.artifacts.outputs.apk_file }}"
+          SHA_FILE="${{ steps.artifacts.outputs.sha_file }}"
+          for EXISTING_TAG in $(gh release list --limit 10 --json tagName --jq '.[].tagName' 2>/dev/null || true); do
+            echo "Ensuring APK asset is attached to release: $EXISTING_TAG"
+            gh release upload "$EXISTING_TAG" "$APK_FILE" "$SHA_FILE" --clobber || true
+            gh release edit "$EXISTING_TAG" --prerelease || true
+          done

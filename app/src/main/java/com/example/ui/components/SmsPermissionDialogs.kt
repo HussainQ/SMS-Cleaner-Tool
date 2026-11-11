@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Launch
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -298,7 +299,7 @@ fun SmsPermissionSettingsDialog(
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier.testTag("open_app_settings_btn")
             ) {
-                Icon(Icons.Default.Launch, contentDescription = null, tint = Navy900, modifier = Modifier.size(16.dp))
+                Icon(Icons.AutoMirrored.Filled.Launch, contentDescription = null, tint = Navy900, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
                 Text("Open App Settings", color = Navy900, fontWeight = FontWeight.Bold, fontSize = 13.sp)
             }
