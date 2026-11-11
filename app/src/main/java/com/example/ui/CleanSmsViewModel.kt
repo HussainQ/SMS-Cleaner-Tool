@@ -3,6 +3,8 @@ package com.example.ui
 import android.app.Application
 import android.content.Context
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.cloud.CloudBackupManager
 import com.example.data.SmsClassifier
@@ -73,7 +75,7 @@ data class CleanSmsUiState(
     val snackbarMessage: String? = null
 )
 
-class CleanSmsViewModel(
+class CleanSmsViewModel @JvmOverloads constructor(
     application: Application,
     private val repository: SmsRepository = SmsRepository(application),
     private val cloudManager: CloudBackupManager = CloudBackupManager(application),
@@ -848,5 +850,15 @@ class CleanSmsViewModel(
 
     fun clearSnackbar() {
         _uiState.update { it.copy(snackbarMessage = null) }
+    }
+
+    companion object {
+        fun Factory(application: Application): ViewModelProvider.Factory =
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                    return CleanSmsViewModel(application) as T
+                }
+            }
     }
 }

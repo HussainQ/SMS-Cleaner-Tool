@@ -1,5 +1,6 @@
 package com.example
 
+import android.app.Application
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
@@ -70,7 +71,11 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CleanSmsApp(
-    viewModel: CleanSmsViewModel = viewModel()
+    viewModel: CleanSmsViewModel = viewModel(
+        factory = CleanSmsViewModel.Factory(
+            LocalContext.current.applicationContext as Application
+        )
+    )
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
