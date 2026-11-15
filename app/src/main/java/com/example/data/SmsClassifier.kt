@@ -173,17 +173,19 @@ object SmsClassifier {
         duplicateKeepStrategy: DuplicateKeepStrategy = DuplicateKeepStrategy.KEEP_OLDEST,
         filterByContactEnabled: Boolean = false,
         selectedContactTokens: Set<String> = emptySet(),
-        contactFilterMode: ContactFilterMode = ContactFilterMode.TARGET_CONTACTS
+        contactFilterMode: ContactFilterMode = ContactFilterMode.TARGET_CONTACTS,
+        selectedContactThreadIds: Set<Long> = emptySet()
     ): List<SmsMessageItem> {
         if (rawMessages.isEmpty()) return emptyList()
 
         val now = System.currentTimeMillis()
         val compiledRules = compileRules(activeRules)
-        val hasGlobalContactFilter = filterByContactEnabled && selectedContactTokens.isNotEmpty()
+        val hasGlobalContactFilter = filterByContactEnabled &&
+            (selectedContactTokens.isNotEmpty() || selectedContactThreadIds.isNotEmpty())
         // Collect all conversation threadIds that belong to any filtered contact so rules
         // run across every thread belonging to those contacts (e.g. SMS + RCS threads).
         val matchedContactThreadIds = if (hasGlobalContactFilter) {
-            val threadIds = HashSet<Long>()
+            val threadIds = HashSet<Long>(selectedContactThreadIds)
             for (msg in rawMessages) {
                 if (msg.threadId > 0L && matchesContactTokens(msg, selectedContactTokens)) {
                     threadIds.add(msg.threadId)

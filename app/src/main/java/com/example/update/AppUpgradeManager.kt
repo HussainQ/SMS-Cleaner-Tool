@@ -103,7 +103,7 @@ class AppUpgradeManager(private val context: Context) {
             currentVersionCode = targetVersionCode,
             previousVersionName = prevName,
             previousVersionCode = prevCode,
-            databaseSchemaVersion = 4,
+            databaseSchemaVersion = 5,
             appliedMilestones = applied,
             wasMultiVersionJump = wasMultiVersionJump,
             migratedAtEpoch = migratedAt

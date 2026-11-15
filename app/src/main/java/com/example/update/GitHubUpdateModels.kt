@@ -84,3 +84,34 @@ enum class UpdateCheckStatus {
     UPDATE_AVAILABLE,
     ERROR
 }
+
+enum class InAppUpdateInstallPhase {
+    IDLE,
+    DOWNLOADING,
+    VERIFYING,
+    READY_TO_INSTALL,
+    PERMISSION_REQUIRED,
+    INSTALL_LAUNCHED,
+    FAILED
+}
+
+data class InAppDownloadState(
+    val phase: InAppUpdateInstallPhase = InAppUpdateInstallPhase.IDLE,
+    val downloadedBytes: Long = 0L,
+    val totalBytes: Long = -1L,
+    val progressFraction: Float = 0f,
+    val apkFilePath: String? = null,
+    val apkFileName: String? = null,
+    val verifiedSha256: String? = null,
+    val sha256Matched: Boolean? = null,
+    val errorMessage: String? = null
+)
+
+data class DownloadedApkResult(
+    val filePath: String,
+    val fileName: String,
+    val bytesDownloaded: Long,
+    val computedSha256: String,
+    val sha256Verified: Boolean
+)
+

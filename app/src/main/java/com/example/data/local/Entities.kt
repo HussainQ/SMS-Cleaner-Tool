@@ -1,15 +1,27 @@
 package com.example.data.local
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
+import com.example.model.ContactInfo
+import com.example.model.ContactThreadHelper
 import com.example.model.MessageProtocol
+import com.example.model.PhoneNormalizer
 import com.example.model.SmsCategory
 import com.example.model.SmsMessageItem
 
-@Entity(tableName = "quarantine_messages")
+@Entity(
+    tableName = "quarantine_messages",
+    indices = [
+        Index(value = ["threadId"]),
+        Index(value = ["address"]),
+        Index(value = ["addressKey"])
+    ]
+)
 data class QuarantineEntity(
     @PrimaryKey val id: String,
     val address: String,
+    val addressKey: String = PhoneNormalizer.primaryKey(address),
     val body: String,
     val date: Long,
     val categoryString: String,
@@ -18,6 +30,7 @@ data class QuarantineEntity(
     val protocolString: String = "SMS",
     val threadId: Long = 0L,
     val isRcsChat: Boolean = false,
+    val contactId: String? = null,
     val contactName: String? = null,
     val type: Int = 1,
     val quarantinedAt: Long = System.currentTimeMillis()
@@ -43,6 +56,7 @@ data class QuarantineEntity(
             protocol = proto,
             threadId = threadId,
             isRcsChat = isRcsChat || proto == MessageProtocol.RCS_CHAT,
+            contactId = contactId,
             contactName = contactName,
             matchReason = matchReason,
             otpCode = otpCode,
@@ -56,6 +70,7 @@ data class QuarantineEntity(
             return QuarantineEntity(
                 id = item.id,
                 address = item.address,
+                addressKey = PhoneNormalizer.primaryKey(item.address),
                 body = item.body,
                 date = item.date,
                 categoryString = item.category.name,
@@ -64,6 +79,7 @@ data class QuarantineEntity(
                 protocolString = item.protocol.name,
                 threadId = item.threadId,
                 isRcsChat = item.isRcsChat || item.protocol == MessageProtocol.RCS_CHAT,
+                contactId = item.contactId,
                 contactName = item.contactName,
                 type = item.type,
                 quarantinedAt = System.currentTimeMillis()
@@ -72,10 +88,18 @@ data class QuarantineEntity(
     }
 }
 
-@Entity(tableName = "deleted_test_snapshots")
+@Entity(
+    tableName = "deleted_test_snapshots",
+    indices = [
+        Index(value = ["threadId"]),
+        Index(value = ["address"]),
+        Index(value = ["addressKey"])
+    ]
+)
 data class DeletedTestSnapshotEntity(
     @PrimaryKey val id: String,
     val address: String,
+    val addressKey: String = PhoneNormalizer.primaryKey(address),
     val body: String,
     val date: Long,
     val type: Int = 1,
@@ -85,6 +109,7 @@ data class DeletedTestSnapshotEntity(
     val protocolString: String = "SMS",
     val threadId: Long = 0L,
     val isRcsChat: Boolean = false,
+    val contactId: String? = null,
     val contactName: String? = null,
     val deletedAt: Long = System.currentTimeMillis()
 ) {
@@ -109,6 +134,7 @@ data class DeletedTestSnapshotEntity(
             protocol = proto,
             threadId = threadId,
             isRcsChat = isRcsChat || proto == MessageProtocol.RCS_CHAT,
+            contactId = contactId,
             contactName = contactName,
             matchReason = matchReason,
             otpCode = otpCode,
@@ -122,6 +148,7 @@ data class DeletedTestSnapshotEntity(
             return DeletedTestSnapshotEntity(
                 id = item.id,
                 address = item.address,
+                addressKey = PhoneNormalizer.primaryKey(item.address),
                 body = item.body,
                 date = item.date,
                 type = item.type,
@@ -131,6 +158,7 @@ data class DeletedTestSnapshotEntity(
                 protocolString = item.protocol.name,
                 threadId = item.threadId,
                 isRcsChat = item.isRcsChat || item.protocol == MessageProtocol.RCS_CHAT,
+                contactId = item.contactId,
                 contactName = item.contactName,
                 deletedAt = System.currentTimeMillis()
             )
@@ -206,4 +234,144 @@ data class OAuthCredentialEntity(
         }
     }
 }
+
+@Entity(
+    tableName = "inbox_message_cache",
+    indices = [
+        Index(value = ["threadId"]),
+        Index(value = ["addressKey"]),
+        Index(value = ["contactId"]),
+        Index(value = ["contactNameLower"])
+    ]
+)
+data class InboxMessageCacheEntity(
+    @PrimaryKey val id: String,
+    val address: String,
+    val addressKey: String,
+    val body: String,
+    val date: Long,
+    val type: Int = 1,
+    val threadId: Long = 0L,
+    val protocolString: String = "SMS",
+    val isRcsChat: Boolean = false,
+    val contactId: String? = null,
+    val contactName: String? = null,
+    val contactNameLower: String = ""
+) {
+    fun toSmsMessageItem(): SmsMessageItem {
+        val proto = try {
+            MessageProtocol.valueOf(protocolString)
+        } catch (_: Exception) {
+            if (isRcsChat) MessageProtocol.RCS_CHAT else MessageProtocol.SMS
+        }
+        return SmsMessageItem(
+            id = id,
+            address = address,
+            body = body,
+            date = date,
+            type = type,
+            category = SmsCategory.NORMAL,
+            protocol = proto,
+            threadId = threadId,
+            isRcsChat = isRcsChat || proto == MessageProtocol.RCS_CHAT,
+            contactId = contactId,
+            contactName = contactName
+        )
+    }
+
+    companion object {
+        fun fromSmsMessageItem(item: SmsMessageItem): InboxMessageCacheEntity {
+            return InboxMessageCacheEntity(
+                id = item.id,
+                address = item.address,
+                addressKey = PhoneNormalizer.primaryKey(item.address),
+                body = item.body,
+                date = item.date,
+                type = item.type,
+                threadId = item.threadId,
+                protocolString = item.protocol.name,
+                isRcsChat = item.isRcsChat || item.protocol == MessageProtocol.RCS_CHAT,
+                contactId = item.contactId,
+                contactName = item.contactName,
+                contactNameLower = item.contactName?.trim()?.lowercase().orEmpty()
+            )
+        }
+    }
+}
+
+@Entity(
+    tableName = "contact_filter_selections",
+    indices = [
+        Index(value = ["scope"]),
+        Index(value = ["threadId"])
+    ]
+)
+data class ContactFilterSelectionEntity(
+    @PrimaryKey val compositeKey: String,
+    val scope: String,
+    val contactId: String,
+    val displayName: String,
+    val phoneNumbersCsv: String,
+    val matchTokensCsv: String,
+    val isFromDeviceContacts: Boolean = false,
+    val threadId: Long? = null,
+    val selectedAt: Long = System.currentTimeMillis()
+) {
+    fun toContactInfo(): ContactInfo {
+        val phones = phoneNumbersCsv
+            .split("|")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+        return ContactInfo(
+            id = contactId,
+            displayName = displayName,
+            phoneNumbers = phones,
+            isFromDeviceContacts = isFromDeviceContacts,
+            threadId = threadId
+        )
+    }
+
+    companion object {
+        const val SCOPE_SCANNER = "SCANNER"
+        const val SCOPE_VAULT = "VAULT"
+
+        fun compositeKeyFor(scope: String, contactId: String): String = "$scope:$contactId"
+
+        fun fromContactInfo(scope: String, contact: ContactInfo): ContactFilterSelectionEntity {
+            val tokens = ContactThreadHelper.collectTokensForContacts(listOf(contact))
+            val sanitizedTokens = tokens
+                .map { it.replace(",", "").trim().lowercase() }
+                .filter { it.isNotEmpty() }
+                .distinct()
+            val matchCsv = if (sanitizedTokens.isEmpty()) {
+                ","
+            } else {
+                ",${sanitizedTokens.joinToString(",")},"
+            }
+            return ContactFilterSelectionEntity(
+                compositeKey = compositeKeyFor(scope, contact.id),
+                scope = scope,
+                contactId = contact.id,
+                displayName = contact.displayName,
+                phoneNumbersCsv = contact.phoneNumbers.joinToString("|"),
+                matchTokensCsv = matchCsv,
+                isFromDeviceContacts = contact.isFromDeviceContacts,
+                threadId = contact.threadId
+            )
+        }
+    }
+}
+
+/**
+ * Projection row returned by Room SQLite GROUP BY queries for the 'Filter By Contact' UI.
+ */
+data class ContactThreadSummaryRow(
+    val contactKey: String,
+    val contactId: String?,
+    val displayName: String,
+    val primaryAddress: String,
+    val messageCount: Int,
+    val threadIdsCsv: String?
+)
+
 

@@ -40,6 +40,8 @@ import com.example.ui.components.ContactPickerDialog
 import com.example.ui.components.MessageDetailSheet
 import com.example.ui.components.PermanentDeleteConfirmDialog
 import com.example.ui.components.RestoreCloudDialog
+import com.example.update.InAppApkInstaller
+import com.example.update.InAppUpdateInstallPhase
 import com.example.update.UpdateCheckStatus
 import com.example.ui.screens.PreviewCleanScreen
 import com.example.ui.screens.RulesAndCloudScreen
@@ -49,6 +51,7 @@ import com.example.ui.theme.CleanSMSTheme
 import com.example.ui.theme.CyanAccent
 import com.example.ui.theme.Navy900
 import com.example.ui.theme.TealAccent
+import java.io.File
 
 enum class NavigationTab(val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
     SCANNER("Scanner", Icons.Default.Dashboard),
@@ -264,6 +267,66 @@ fun CleanSmsApp(
             } catch (_: Exception) {
                 viewModel.showSnackbar("Open System Settings > Default Apps > SMS app to select ${state.previousDefaultSmsAppName}.")
             }
+        }
+    }
+
+    // Activity launcher for unknown-app-sources permission screen (Android 8+)
+    val installPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        viewModel.onInstallPermissionReturned()
+    }
+
+    val requestUnknownAppInstallPermissionAction: () -> Unit = remember(installPermissionLauncher, context, viewModel) {
+        {
+            try {
+                installPermissionLauncher.launch(
+                    InAppApkInstaller.createUnknownAppSourcesSettingsIntent(context)
+                )
+            } catch (_: Exception) {
+                viewModel.markApkInstallFailed(
+                    "Open Android Settings > Apps > CleanSMS > Install unknown apps and enable permission."
+                )
+            }
+        }
+    }
+
+    val launchDownloadedApkInstallAction: () -> Unit = remember(context, viewModel, requestUnknownAppInstallPermissionAction) {
+        {
+            val apkPath = viewModel.uiState.value.inAppDownloadState.apkFilePath
+            if (apkPath.isNullOrBlank()) {
+                viewModel.markApkInstallFailed("No downloaded APK file found.")
+            } else {
+                val apkFile = File(apkPath)
+                if (!apkFile.exists() || apkFile.length() == 0L) {
+                    viewModel.markApkInstallFailed("Downloaded APK file is missing or empty. Tap Retry to download again.")
+                } else if (!InAppApkInstaller.canInstallUnknownApps(context)) {
+                    requestUnknownAppInstallPermissionAction()
+                } else {
+                    try {
+                        val installIntent = InAppApkInstaller.createInstallApkIntent(context, apkFile)
+                        context.startActivity(installIntent)
+                        viewModel.markApkInstallLaunched()
+                    } catch (e: Exception) {
+                        viewModel.markApkInstallFailed(
+                            "Unable to launch system package installer: ${e.message ?: "Unknown error"}"
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    // Automatically launch system package installer as soon as an in-app downloaded APK is ready
+    LaunchedEffect(uiState.inAppDownloadState.phase, uiState.inAppDownloadState.apkFilePath) {
+        val dl = uiState.inAppDownloadState
+        val path = dl.apkFilePath
+        if (dl.phase == InAppUpdateInstallPhase.READY_TO_INSTALL &&
+            !path.isNullOrBlank() &&
+            File(path).exists() &&
+            File(path).length() > 0L
+        ) {
+            launchDownloadedApkInstallAction()
         }
     }
 
@@ -712,13 +775,17 @@ fun CleanSmsApp(
         )
     }
 
-    // GitHub Release Update Checker & Multi-Version Upgrade Dialog
+    // GitHub Release Update Checker & Direct In-App Updater Dialog
     if (uiState.showUpdatesDialog) {
         AppUpdatesDialog(
             uiState = uiState,
             onCheckNow = { viewModel.checkForGitHubUpdates(userInitiated = true) },
             onTogglePrereleases = { viewModel.toggleIncludePrereleases(it) },
             onSaveRepoSlug = { viewModel.updateGitHubRepoSlug(it) },
+            onDownloadAndInstall = { viewModel.downloadAndInstallUpdate() },
+            onCancelDownload = { viewModel.cancelUpdateDownload() },
+            onTriggerInstall = launchDownloadedApkInstallAction,
+            onRequestInstallPermission = requestUnknownAppInstallPermissionAction,
             onNotify = { viewModel.showSnackbar(it) },
             onDismiss = { viewModel.dismissUpdatesDialog() }
         )
@@ -761,7 +828,8 @@ private fun AppScreenContent(
         NavigationTab.VAULT -> {
             VaultRestoreScreen(
                 uiState = uiState,
-                viewModel = viewModel
+                viewModel = viewModel,
+                onRequestContactsPermission = onRequestContactsPermission
             )
         }
 

@@ -40,6 +40,10 @@ fun AppUpdatesDialog(
     onCheckNow: () -> Unit,
     onTogglePrereleases: (Boolean) -> Unit,
     onSaveRepoSlug: (String) -> Unit,
+    onDownloadAndInstall: () -> Unit,
+    onCancelDownload: () -> Unit,
+    onTriggerInstall: () -> Unit,
+    onRequestInstallPermission: () -> Unit,
     onNotify: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -50,6 +54,8 @@ fun AppUpdatesDialog(
     val result = uiState.updateCheckResult
     val latest = result?.latestRelease
     val isUpdateAvailable = result?.isUpdateAvailable == true
+    val downloadState = uiState.inAppDownloadState
+    val downloadPhase = downloadState.phase
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -102,7 +108,7 @@ fun AppUpdatesDialog(
                         }
                         Column {
                             Text(
-                                text = "GitHub Updates & Upgrade Path",
+                                text = "GitHub Updates & In-App Installer",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 17.sp,
                                 color = MaterialTheme.colorScheme.onSurface
@@ -130,6 +136,17 @@ fun AppUpdatesDialog(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    // In-App Download & Install Status Card (prominent at top when active)
+                    if (downloadPhase != com.example.update.InAppUpdateInstallPhase.IDLE) {
+                        InAppUpdateDownloadCard(
+                            downloadState = downloadState,
+                            onCancelDownload = onCancelDownload,
+                            onRetryDownload = onDownloadAndInstall,
+                            onTriggerInstall = onTriggerInstall,
+                            onRequestInstallPermission = onRequestInstallPermission
+                        )
+                    }
+
                     // Repository Source + Pre-release Channel Card
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
@@ -314,7 +331,7 @@ fun AppUpdatesDialog(
                                                     modifier = Modifier.size(16.dp)
                                                 )
                                                 Text(
-                                                    text = "Direct Multi-Version Upgrade Path Ready",
+                                                    text = "Direct In-App Multi-Version Upgrade Ready",
                                                     fontSize = 12.sp,
                                                     fontWeight = FontWeight.Bold,
                                                     color = TealAccent
@@ -327,7 +344,7 @@ fun AppUpdatesDialog(
                                                 color = MaterialTheme.colorScheme.onSurface
                                             )
                                             Text(
-                                                text = "Room schema migrations (v1→v4) & app preferences migrate directly in one jump—no intermediate APK installs required. Note: if upgrading once from a build with a different package name or signing certificate, uninstall the previous version first before installing com.aistudio.cleansms.jrvxpq.",
+                                                text = "Room schema migrations (v1→v5) & app preferences migrate directly in one jump. APK downloads & verifies directly in-app with no external browser needed.",
                                                 fontSize = 11.sp,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
@@ -421,6 +438,32 @@ fun AppUpdatesDialog(
                                                     )
                                                 }
                                             }
+                                        }
+                                    }
+
+                                    if (!latest?.htmlUrl.isNullOrBlank()) {
+                                        TextButton(
+                                            onClick = {
+                                                val url = latest?.htmlUrl.orEmpty()
+                                                try {
+                                                    context.startActivity(
+                                                        Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                        }
+                                                    )
+                                                } catch (_: Exception) {
+                                                    onNotify("Unable to open release notes page.")
+                                                }
+                                            },
+                                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.AutoMirrored.Filled.Launch,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("View Release Notes on GitHub", fontSize = 11.sp)
                                         }
                                     }
                                 }
@@ -520,7 +563,7 @@ fun AppUpdatesDialog(
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    text = "Room Schema v${report.databaseSchemaVersion} • Non-destructive v1→v4 migrations active",
+                                    text = "Room Schema v${report.databaseSchemaVersion} • Non-destructive v1→v5 migrations active",
                                     fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -543,7 +586,8 @@ fun AppUpdatesDialog(
                 ) {
                     OutlinedButton(
                         onClick = onCheckNow,
-                        enabled = uiState.updateCheckStatus != UpdateCheckStatus.CHECKING,
+                        enabled = uiState.updateCheckStatus != UpdateCheckStatus.CHECKING &&
+                            downloadPhase != com.example.update.InAppUpdateInstallPhase.DOWNLOADING,
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
                             .weight(1f)
@@ -555,34 +599,54 @@ fun AppUpdatesDialog(
                         Text("Check Now", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     }
 
-                    val targetDownloadUrl = latest?.apkAsset?.downloadUrl ?: latest?.htmlUrl
-                        ?: "https://github.com/${uiState.gitHubRepoSlug}/releases"
+                    val hasApkForUpdate = isUpdateAvailable && !latest?.apkAsset?.downloadUrl.isNullOrBlank()
+                    val fallbackWebUrl = latest?.htmlUrl ?: "https://github.com/${uiState.gitHubRepoSlug}/releases"
+
+                    val isDownloading = downloadPhase == com.example.update.InAppUpdateInstallPhase.DOWNLOADING ||
+                        downloadPhase == com.example.update.InAppUpdateInstallPhase.VERIFYING
+                    val isPermissionBlocked = downloadPhase == com.example.update.InAppUpdateInstallPhase.PERMISSION_REQUIRED
+                    val isApkReady = (downloadPhase == com.example.update.InAppUpdateInstallPhase.READY_TO_INSTALL ||
+                        downloadPhase == com.example.update.InAppUpdateInstallPhase.INSTALL_LAUNCHED) &&
+                        !downloadState.apkFilePath.isNullOrBlank()
 
                     Button(
                         onClick = {
-                            try {
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(targetDownloadUrl)).apply {
-                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            when {
+                                isPermissionBlocked -> onRequestInstallPermission()
+                                isApkReady -> onTriggerInstall()
+                                hasApkForUpdate -> onDownloadAndInstall()
+                                else -> {
+                                    try {
+                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(fallbackWebUrl)).apply {
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        }
+                                        context.startActivity(intent)
+                                    } catch (_: Exception) {
+                                        onNotify("Unable to open browser for $fallbackWebUrl")
+                                    }
                                 }
-                                context.startActivity(intent)
-                            } catch (_: Exception) {
-                                onNotify("Unable to open browser for $targetDownloadUrl")
                             }
                         },
+                        enabled = !isDownloading,
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isUpdateAvailable) TealAccent else CyanAccent
+                            containerColor = when {
+                                isPermissionBlocked -> AmberAccent
+                                isApkReady || hasApkForUpdate -> TealAccent
+                                else -> CyanAccent
+                            }
                         ),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
-                            .weight(1.3f)
+                            .weight(1.35f)
                             .height(48.dp)
                             .testTag("pull_latest_release_btn")
                     ) {
                         Icon(
-                            imageVector = if (isUpdateAvailable && latest?.apkAsset != null) {
-                                Icons.Default.Download
-                            } else {
-                                Icons.AutoMirrored.Filled.Launch
+                            imageVector = when {
+                                isPermissionBlocked -> Icons.Default.AdminPanelSettings
+                                isApkReady -> Icons.Default.InstallMobile
+                                hasApkForUpdate -> Icons.Default.Download
+                                else -> Icons.AutoMirrored.Filled.Launch
                             },
                             contentDescription = null,
                             tint = Navy900,
@@ -591,16 +655,234 @@ fun AppUpdatesDialog(
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = when {
-                                isUpdateAvailable && latest?.apkAsset != null -> "Pull Latest APK"
+                                isDownloading -> "Downloading..."
+                                isPermissionBlocked -> "Allow Install"
+                                isApkReady -> "Install APK"
+                                hasApkForUpdate -> "Download & Install"
                                 isUpdateAvailable -> "Open Release"
                                 else -> "GitHub Releases"
                             },
                             color = Navy900,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InAppUpdateDownloadCard(
+    downloadState: com.example.update.InAppDownloadState,
+    onCancelDownload: () -> Unit,
+    onRetryDownload: () -> Unit,
+    onTriggerInstall: () -> Unit,
+    onRequestInstallPermission: () -> Unit
+) {
+    val phase = downloadState.phase
+    val containerColor = when (phase) {
+        com.example.update.InAppUpdateInstallPhase.FAILED -> Color(0xFFEF5350).copy(alpha = 0.12f)
+        com.example.update.InAppUpdateInstallPhase.PERMISSION_REQUIRED -> AmberAccent.copy(alpha = 0.14f)
+        com.example.update.InAppUpdateInstallPhase.READY_TO_INSTALL,
+        com.example.update.InAppUpdateInstallPhase.INSTALL_LAUNCHED -> TealAccent.copy(alpha = 0.14f)
+        else -> CyanAccent.copy(alpha = 0.12f)
+    }
+    val borderColor = when (phase) {
+        com.example.update.InAppUpdateInstallPhase.FAILED -> Color(0xFFEF5350).copy(alpha = 0.45f)
+        com.example.update.InAppUpdateInstallPhase.PERMISSION_REQUIRED -> AmberAccent.copy(alpha = 0.5f)
+        com.example.update.InAppUpdateInstallPhase.READY_TO_INSTALL,
+        com.example.update.InAppUpdateInstallPhase.INSTALL_LAUNCHED -> TealAccent.copy(alpha = 0.5f)
+        else -> CyanAccent.copy(alpha = 0.45f)
+    }
+
+    Surface(
+        color = containerColor,
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, borderColor),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("in_app_update_progress_card")
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            when (phase) {
+                com.example.update.InAppUpdateInstallPhase.DOWNLOADING,
+                com.example.update.InAppUpdateInstallPhase.VERIFYING -> {
+                    val downloadedMb = String.format(java.util.Locale.US, "%.1f MB", downloadState.downloadedBytes / (1024.0 * 1024.0))
+                    val totalMb = if (downloadState.totalBytes > 0L) {
+                        String.format(java.util.Locale.US, "%.1f MB", downloadState.totalBytes / (1024.0 * 1024.0))
+                    } else {
+                        "…"
+                    }
+                    val pct = (downloadState.progressFraction * 100f).toInt().coerceIn(0, 100)
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (phase == com.example.update.InAppUpdateInstallPhase.VERIFYING) {
+                                "Verifying APK integrity..."
+                            } else {
+                                "Downloading update APK ($pct%)"
+                            },
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = CyanAccent,
+                            modifier = Modifier.testTag("download_status_text")
+                        )
+                        Text(
+                            text = "$downloadedMb / $totalMb",
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    if (downloadState.totalBytes > 0L) {
+                        LinearProgressIndicator(
+                            progress = { downloadState.progressFraction.coerceIn(0f, 1f) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .testTag("update_download_progress_bar"),
+                            color = CyanAccent
+                        )
+                    } else {
+                        LinearProgressIndicator(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .testTag("update_download_progress_bar"),
+                            color = CyanAccent
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = downloadState.apkFileName.orEmpty(),
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(
+                            onClick = onCancelDownload,
+                            modifier = Modifier.testTag("cancel_update_download_btn")
+                        ) {
+                            Text("Cancel", fontSize = 12.sp, color = RedDestructive)
+                        }
+                    }
+                }
+
+                com.example.update.InAppUpdateInstallPhase.PERMISSION_REQUIRED -> {
+                    Text(
+                        text = "Allow In-App Package Installs",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        color = AmberAccent
+                    )
+                    Text(
+                        text = downloadState.errorMessage
+                            ?: "APK downloaded and verified. Enable 'Allow from this source' in Android Settings to install CleanSMS directly inside the app.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Button(
+                        onClick = onRequestInstallPermission,
+                        colors = ButtonDefaults.buttonColors(containerColor = AmberAccent),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
+                            .testTag("grant_install_permission_btn")
+                    ) {
+                        Icon(Icons.Default.AdminPanelSettings, contentDescription = null, tint = Navy900, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Allow App Installs", color = Navy900, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                }
+
+                com.example.update.InAppUpdateInstallPhase.READY_TO_INSTALL,
+                com.example.update.InAppUpdateInstallPhase.INSTALL_LAUNCHED -> {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(Icons.Default.Verified, contentDescription = null, tint = TealAccent, modifier = Modifier.size(18.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (phase == com.example.update.InAppUpdateInstallPhase.INSTALL_LAUNCHED) {
+                                    "System Package Installer Launched"
+                                } else {
+                                    "APK Downloaded & Verified"
+                                },
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = TealAccent
+                            )
+                            Text(
+                                text = buildString {
+                                    append(downloadState.apkFileName ?: "CleanSMS update.apk")
+                                    if (downloadState.sha256Matched == true) {
+                                        append(" • SHA-256 verified")
+                                    }
+                                },
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    Button(
+                        onClick = onTriggerInstall,
+                        colors = ButtonDefaults.buttonColors(containerColor = TealAccent),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
+                            .testTag("install_downloaded_apk_btn")
+                    ) {
+                        Icon(Icons.Default.InstallMobile, contentDescription = null, tint = Navy900, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Install Downloaded APK", color = Navy900, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                }
+
+                com.example.update.InAppUpdateInstallPhase.FAILED -> {
+                    Text(
+                        text = "In-App Update Error",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        color = Color(0xFFEF5350)
+                    )
+                    Text(
+                        text = downloadState.errorMessage ?: "Unable to download update APK.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedButton(
+                        onClick = onRetryDownload,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.testTag("retry_update_download_btn")
+                    ) {
+                        Text("Retry In-App Download", fontSize = 12.sp)
+                    }
+                }
+
+                com.example.update.InAppUpdateInstallPhase.IDLE -> Unit
             }
         }
     }

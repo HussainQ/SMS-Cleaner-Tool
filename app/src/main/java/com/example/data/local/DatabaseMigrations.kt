@@ -198,9 +198,90 @@ object DatabaseMigrations {
         }
     }
 
+    /**
+     * v4 -> v5:
+     * - Adds indexed `inbox_message_cache` & `contact_filter_selections` tables for background
+     *   Room @Query + Coroutine Flow processing of the 'Filter By Contact' feature.
+     * - Adds `contactId`, `addressKey`, and SQLite indexes to `quarantine_messages` and
+     *   `deleted_test_snapshots` for non-blocking Vault contact filtering.
+     */
+    val MIGRATION_4_5 = object : Migration(4, 5) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            if (tableExists(db, "quarantine_messages")) {
+                if (!hasColumn(db, "quarantine_messages", "addressKey")) {
+                    db.execSQL("ALTER TABLE `quarantine_messages` ADD COLUMN `addressKey` TEXT NOT NULL DEFAULT ''")
+                    db.execSQL("UPDATE `quarantine_messages` SET `addressKey` = LOWER(TRIM(`address`)) WHERE `addressKey` = ''")
+                }
+                if (!hasColumn(db, "quarantine_messages", "contactId")) {
+                    db.execSQL("ALTER TABLE `quarantine_messages` ADD COLUMN `contactId` TEXT")
+                }
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_quarantine_messages_threadId` ON `quarantine_messages` (`threadId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_quarantine_messages_address` ON `quarantine_messages` (`address`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_quarantine_messages_addressKey` ON `quarantine_messages` (`addressKey`)")
+            }
+
+            if (tableExists(db, "deleted_test_snapshots")) {
+                if (!hasColumn(db, "deleted_test_snapshots", "addressKey")) {
+                    db.execSQL("ALTER TABLE `deleted_test_snapshots` ADD COLUMN `addressKey` TEXT NOT NULL DEFAULT ''")
+                    db.execSQL("UPDATE `deleted_test_snapshots` SET `addressKey` = LOWER(TRIM(`address`)) WHERE `addressKey` = ''")
+                }
+                if (!hasColumn(db, "deleted_test_snapshots", "contactId")) {
+                    db.execSQL("ALTER TABLE `deleted_test_snapshots` ADD COLUMN `contactId` TEXT")
+                }
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_deleted_test_snapshots_threadId` ON `deleted_test_snapshots` (`threadId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_deleted_test_snapshots_address` ON `deleted_test_snapshots` (`address`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_deleted_test_snapshots_addressKey` ON `deleted_test_snapshots` (`addressKey`)")
+            }
+
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `inbox_message_cache` (
+                    `id` TEXT NOT NULL,
+                    `address` TEXT NOT NULL,
+                    `addressKey` TEXT NOT NULL,
+                    `body` TEXT NOT NULL,
+                    `date` INTEGER NOT NULL,
+                    `type` INTEGER NOT NULL DEFAULT 1,
+                    `threadId` INTEGER NOT NULL DEFAULT 0,
+                    `protocolString` TEXT NOT NULL DEFAULT 'SMS',
+                    `isRcsChat` INTEGER NOT NULL DEFAULT 0,
+                    `contactId` TEXT,
+                    `contactName` TEXT,
+                    `contactNameLower` TEXT NOT NULL DEFAULT '',
+                    PRIMARY KEY(`id`)
+                )
+                """.trimIndent()
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_inbox_message_cache_threadId` ON `inbox_message_cache` (`threadId`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_inbox_message_cache_addressKey` ON `inbox_message_cache` (`addressKey`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_inbox_message_cache_contactId` ON `inbox_message_cache` (`contactId`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_inbox_message_cache_contactNameLower` ON `inbox_message_cache` (`contactNameLower`)")
+
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `contact_filter_selections` (
+                    `compositeKey` TEXT NOT NULL,
+                    `scope` TEXT NOT NULL,
+                    `contactId` TEXT NOT NULL,
+                    `displayName` TEXT NOT NULL,
+                    `phoneNumbersCsv` TEXT NOT NULL,
+                    `matchTokensCsv` TEXT NOT NULL,
+                    `isFromDeviceContacts` INTEGER NOT NULL DEFAULT 0,
+                    `threadId` INTEGER,
+                    `selectedAt` INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY(`compositeKey`)
+                )
+                """.trimIndent()
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_contact_filter_selections_scope` ON `contact_filter_selections` (`scope`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_contact_filter_selections_threadId` ON `contact_filter_selections` (`threadId`)")
+        }
+    }
+
     val ALL_MIGRATIONS: Array<Migration> = arrayOf(
         MIGRATION_1_2,
         MIGRATION_2_3,
-        MIGRATION_3_4
+        MIGRATION_3_4,
+        MIGRATION_4_5
     )
 }

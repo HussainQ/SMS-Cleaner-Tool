@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.sp
 import com.example.model.ContactFilterMode
 import com.example.ui.CleanSmsUiState
 import com.example.ui.CleanSmsViewModel
+import com.example.ui.components.ContactFilterChecklist
 import com.example.ui.theme.*
 
 @Composable
@@ -117,7 +118,8 @@ fun ScannerScreen(
                     DetectionRulesCard(
                         uiState = uiState,
                         viewModel = viewModel,
-                        customCount = customCount
+                        customCount = customCount,
+                        onRequestContactsPermission = onRequestContactsPermission
                     )
                 }
             }
@@ -166,7 +168,8 @@ fun ScannerScreen(
                 DetectionRulesCard(
                     uiState = uiState,
                     viewModel = viewModel,
-                    customCount = customCount
+                    customCount = customCount,
+                    onRequestContactsPermission = onRequestContactsPermission
                 )
             }
         }
@@ -560,7 +563,8 @@ fun TelephonyBanner(
 private fun DetectionRulesCard(
     uiState: CleanSmsUiState,
     viewModel: CleanSmsViewModel,
-    customCount: Int
+    customCount: Int,
+    onRequestContactsPermission: () -> Unit
 ) {
     Card(
         shape = RoundedCornerShape(16.dp),
@@ -641,104 +645,41 @@ private fun DetectionRulesCard(
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
 
-            // Per-Contact Filter Section in Main Detection Rules
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                FilterToggleRow(
-                    title = "Filter by Contact",
-                    subtitle = "Apply active cleaning rules only to selected contacts' threads, or protect VIP contacts",
-                    icon = Icons.Default.Contacts,
-                    iconColor = CyanAccent,
-                    checked = uiState.filterByContactEnabled,
-                    onCheckedChange = { viewModel.toggleContactFilter(it) },
-                    switchTestTag = "main_contact_filter_switch"
-                )
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 36.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    FilterChip(
-                        selected = uiState.contactFilterMode == ContactFilterMode.TARGET_CONTACTS,
-                        onClick = { viewModel.setContactFilterMode(ContactFilterMode.TARGET_CONTACTS) },
-                        label = { Text("Target Selected", fontSize = 11.sp) },
-                        leadingIcon = if (uiState.contactFilterMode == ContactFilterMode.TARGET_CONTACTS) {
-                            { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
-                        } else null,
-                        modifier = Modifier.testTag("contact_mode_target")
-                    )
-                    FilterChip(
-                        selected = uiState.contactFilterMode == ContactFilterMode.PROTECT_CONTACTS,
-                        onClick = { viewModel.setContactFilterMode(ContactFilterMode.PROTECT_CONTACTS) },
-                        label = { Text("Protect (VIP)", fontSize = 11.sp) },
-                        leadingIcon = if (uiState.contactFilterMode == ContactFilterMode.PROTECT_CONTACTS) {
-                            { Icon(Icons.Default.Shield, contentDescription = null, modifier = Modifier.size(14.dp)) }
-                        } else null,
-                        modifier = Modifier.testTag("contact_mode_protect")
-                    )
+            // Per-Contact Thread-Scoped Filter Checklist Component
+            val selectedIds = uiState.selectedContacts.map { it.id }.toSet()
+            val scope = uiState.contactFilterScope
+            val scopeSummary = if (scope.isActive) {
+                if (scope.mode == ContactFilterMode.PROTECT_CONTACTS) {
+                    "Protecting ${scope.selectedContactIds.size} contact(s) across ${scope.selectedThreadIds.size} thread(s)"
+                } else {
+                    "Scoped to ${scope.selectedContactIds.size} contact(s) (${scope.selectedThreadIds.size} thread(s)): deduplication & rules run only in these threads"
                 }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 36.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    FilledTonalButton(
-                        onClick = { viewModel.openMainContactPicker() },
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier
-                            .height(40.dp)
-                            .testTag("main_choose_contacts_button")
-                    ) {
-                        Icon(Icons.Default.PersonAdd, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = if (uiState.selectedContacts.isEmpty()) {
-                                "Choose Contacts"
-                            } else {
-                                "Contacts (${uiState.selectedContacts.size})"
-                            },
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-
-                    if (uiState.selectedContacts.isNotEmpty()) {
-                        TextButton(onClick = { viewModel.clearSelectedContacts() }) {
-                            Text("Clear", fontSize = 12.sp)
-                        }
-                    }
-                }
-
-                if (uiState.selectedContacts.isNotEmpty()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 36.dp)
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        uiState.selectedContacts.forEach { contact ->
-                            InputChip(
-                                selected = true,
-                                onClick = { viewModel.toggleSelectedContact(contact) },
-                                label = { Text(contact.displayName, fontSize = 11.sp) },
-                                trailingIcon = {
-                                    Icon(
-                                        Icons.Default.Close,
-                                        contentDescription = "Remove ${contact.displayName}",
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                }
-                            )
-                        }
-                    }
-                }
+            } else {
+                null
             }
+            ContactFilterChecklist(
+                title = "Filter by Contact",
+                subtitle = "Check contacts to scope de-duplication & cleaning strictly to their threads",
+                entries = uiState.scannerContactEntries,
+                selectedContactIds = selectedIds,
+                onToggleContact = { contact -> viewModel.toggleSelectedContact(contact) },
+                onSelectAll = { viewModel.selectAllFilterContacts() },
+                onClearAll = { viewModel.clearSelectedContacts() },
+                hasContactsPermission = uiState.hasContactsPermission,
+                onRequestContactsPermission = onRequestContactsPermission,
+                filterEnabled = uiState.filterByContactEnabled,
+                onToggleFilterEnabled = { viewModel.toggleContactFilter(it) },
+                filterMode = uiState.contactFilterMode,
+                onSelectFilterMode = { viewModel.setContactFilterMode(it) },
+                scopeSummaryText = scopeSummary,
+                emptyMessage = "No contacts or SMS threads available yet",
+                maxListHeightDp = 230,
+                testTagPrefix = "scanner_contact_filter",
+                switchTestTag = "main_contact_filter_switch",
+                searchQuery = uiState.scannerContactSearchQuery,
+                onSearchQueryChange = { viewModel.setScannerContactSearchQuery(it) },
+                onOpenFullPicker = { viewModel.openMainContactPicker() }
+            )
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
 

@@ -11,9 +11,11 @@ import androidx.room.RoomDatabase
         CustomRuleEntity::class,
         BackupRecordEntity::class,
         OAuthCredentialEntity::class,
-        DeletedTestSnapshotEntity::class
+        DeletedTestSnapshotEntity::class,
+        InboxMessageCacheEntity::class,
+        ContactFilterSelectionEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

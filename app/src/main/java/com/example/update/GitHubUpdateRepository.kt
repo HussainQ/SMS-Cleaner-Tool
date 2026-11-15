@@ -102,6 +102,124 @@ class GitHubUpdateRepository(
         }
     }
 
+    /**
+     * Downloads an APK release asset directly to app-private storage, computes its SHA-256 digest
+     * on the fly, verifies its ZIP/APK signature bytes, and validates against [expectedSha256]
+     * when available. Never opens an external browser.
+     */
+    suspend fun downloadApkUpdate(
+        downloadUrl: String,
+        destinationFile: java.io.File,
+        expectedSha256: String? = null,
+        onProgress: (downloadedBytes: Long, totalBytes: Long) -> Unit = { _, _ -> }
+    ): Result<DownloadedApkResult> = withContext(Dispatchers.IO) {
+        if (downloadUrl.isBlank()) {
+            return@withContext Result.failure(IllegalArgumentException("Release APK download URL is missing."))
+        }
+        val parentDir = destinationFile.parentFile
+        if (parentDir != null && !parentDir.exists()) {
+            parentDir.mkdirs()
+        }
+        val tempFile = java.io.File(destinationFile.parentFile, "${destinationFile.name}.download")
+        if (tempFile.exists()) tempFile.delete()
+
+        try {
+            val downloadClient = okHttpClient.newBuilder()
+                .readTimeout(60, TimeUnit.SECONDS)
+                .followRedirects(true)
+                .followSslRedirects(true)
+                .build()
+
+            val request = Request.Builder()
+                .url(downloadUrl)
+                .header("User-Agent", "CleanSMS-Android-Updater")
+                .header("Accept", "application/vnd.android.package-archive, application/octet-stream, */*")
+                .build()
+
+            downloadClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(
+                        IllegalStateException("APK download failed with HTTP ${response.code}.")
+                    )
+                }
+                val body = response.body
+                    ?: return@withContext Result.failure(IllegalStateException("Empty APK response from server."))
+
+                val totalBytes = body.contentLength()
+                val digest = java.security.MessageDigest.getInstance("SHA-256")
+                var downloaded = 0L
+                var lastProgressEmit = 0L
+                var headerByte0 = -1
+                var headerByte1 = -1
+
+                body.byteStream().use { input ->
+                    java.io.FileOutputStream(tempFile).use { output ->
+                        val buffer = ByteArray(16 * 1024)
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read == -1) break
+                            if (downloaded == 0L && read >= 2) {
+                                headerByte0 = buffer[0].toInt() and 0xFF
+                                headerByte1 = buffer[1].toInt() and 0xFF
+                            } else if (downloaded == 0L && read == 1) {
+                                headerByte0 = buffer[0].toInt() and 0xFF
+                            } else if (downloaded == 1L && headerByte1 == -1 && read >= 1) {
+                                headerByte1 = buffer[0].toInt() and 0xFF
+                            }
+                            output.write(buffer, 0, read)
+                            digest.update(buffer, 0, read)
+                            downloaded += read
+
+                            if (downloaded - lastProgressEmit >= 64 * 1024 || (totalBytes > 0 && downloaded >= totalBytes)) {
+                                lastProgressEmit = downloaded
+                                onProgress(downloaded, totalBytes)
+                            }
+                        }
+                        output.fd.sync()
+                    }
+                }
+
+                onProgress(downloaded, totalBytes)
+
+                // Verify APK/ZIP magic bytes ('PK' = 0x50 0x4B) to reject HTML error pages
+                if (downloaded <= 0L || headerByte0 != 0x50 || headerByte1 != 0x4B) {
+                    tempFile.delete()
+                    return@withContext Result.failure(
+                        IllegalStateException("Downloaded file is not a valid Android APK package.")
+                    )
+                }
+
+                val computedHex = digest.digest().joinToString("") { "%02x".format(it) }
+                val expectedNormalized = expectedSha256?.trim()?.lowercase()?.takeIf { SHA256_REGEX.matches(it) }
+                if (expectedNormalized != null && computedHex != expectedNormalized) {
+                    tempFile.delete()
+                    return@withContext Result.failure(
+                        SecurityException("APK SHA-256 mismatch! Expected ${expectedNormalized.take(12)}…, got ${computedHex.take(12)}….")
+                    )
+                }
+
+                if (destinationFile.exists()) destinationFile.delete()
+                if (!tempFile.renameTo(destinationFile)) {
+                    tempFile.copyTo(destinationFile, overwrite = true)
+                    tempFile.delete()
+                }
+
+                Result.success(
+                    DownloadedApkResult(
+                        filePath = destinationFile.absolutePath,
+                        fileName = destinationFile.name,
+                        bytesDownloaded = downloaded,
+                        computedSha256 = computedHex,
+                        sha256Verified = expectedNormalized != null
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            tempFile.delete()
+            Result.failure(e)
+        }
+    }
+
     companion object {
         private val SHA256_REGEX = Regex("""\b([a-fA-F0-9]{64})\b""")
 

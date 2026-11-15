@@ -19,6 +19,9 @@ import com.example.model.BackupHistoryRecord
 import com.example.model.CloudBackupPayload
 import com.example.model.ContactFilterMode
 import com.example.model.ContactInfo
+import com.example.model.ContactThreadEntry
+import com.example.model.ContactThreadFilterScope
+import com.example.model.ContactThreadHelper
 import com.example.model.CustomFilterRule
 import com.example.model.DuplicateKeepStrategy
 import com.example.model.DuplicateThreadCluster
@@ -31,6 +34,9 @@ import com.example.model.SmsMessageItem
 import com.example.telephony.TelephonyManagerHelper
 import com.example.update.AppUpgradeManager
 import com.example.update.GitHubUpdateRepository
+import com.example.update.InAppApkInstaller
+import com.example.update.InAppDownloadState
+import com.example.update.InAppUpdateInstallPhase
 import com.example.update.UpdateCheckResult
 import com.example.update.UpdateCheckStatus
 import com.example.update.UpgradeMigrationReport
@@ -64,12 +70,19 @@ data class CleanSmsUiState(
     // Testing delete recovery toggle & snapshots
     val testingRestoreDeletedEnabled: Boolean = true,
     val deletedTestMessages: List<SmsMessageItem> = emptyList(),
-    // Contacts & Per-contact filter
+    // Contacts & Per-contact filter (thread-scoped for deduplication & cleanup)
     val availableContacts: List<ContactInfo> = emptyList(),
+    val scannerContactEntries: List<ContactThreadEntry> = emptyList(),
     val filterByContactEnabled: Boolean = false,
     val selectedContacts: List<ContactInfo> = emptyList(),
     val contactFilterMode: ContactFilterMode = ContactFilterMode.TARGET_CONTACTS,
+    val contactFilterScope: ContactThreadFilterScope = ContactThreadFilterScope(),
     val showMainContactPickerDialog: Boolean = false,
+    // Vault contact group review filter
+    val vaultContactEntries: List<ContactThreadEntry> = emptyList(),
+    val vaultFilterByContactEnabled: Boolean = false,
+    val vaultSelectedContacts: List<ContactInfo> = emptyList(),
+    val vaultGroupByContact: Boolean = true,
     val isScanning: Boolean = false,
     val searchQuery: String = "",
     val selectedCategoryTab: SmsCategory = SmsCategory.ALL,
@@ -105,13 +118,14 @@ data class CleanSmsUiState(
     val activeRestorePayload: CloudBackupPayload? = null,
     val detailMessage: SmsMessageItem? = null,
     val snackbarMessage: String? = null,
-    // GitHub release update check & airtight multi-version upgrade state
+    // GitHub release update check, direct in-app APK download/install & multi-version upgrade state
     val gitHubRepoSlug: String = AppUpgradeManager.DEFAULT_GITHUB_REPO,
     val includePrereleases: Boolean = true,
     val updateCheckStatus: UpdateCheckStatus = UpdateCheckStatus.IDLE,
     val updateCheckResult: UpdateCheckResult? = null,
     val upgradeMigrationReport: UpgradeMigrationReport? = null,
     val showUpdatesDialog: Boolean = false,
+    val inAppDownloadState: InAppDownloadState = InAppDownloadState(),
     // Hierarchical back-navigation state (top-level tab order of clicks + in-screen sub-tabs)
     val currentTab: NavigationTab = NavigationTab.SCANNER,
     val tabBackStack: List<NavigationTab> = listOf(NavigationTab.SCANNER),
@@ -148,6 +162,7 @@ class CleanSmsViewModel @JvmOverloads constructor(
     private var refreshJob: Job? = null
     private var reclassifyJob: Job? = null
     private var updateCheckJob: Job? = null
+    private var apkDownloadJob: Job? = null
     private var cachedDeviceContacts: List<ContactInfo> = emptyList()
 
     init {
@@ -241,7 +256,18 @@ class CleanSmsViewModel @JvmOverloads constructor(
                 val items = withContext(Dispatchers.Default) {
                     entities.map { it.toSmsMessageItem() }
                 }
-                _uiState.update { it.copy(quarantinedMessages = items) }
+                _uiState.update { state ->
+                    val combined = items + state.deletedTestMessages
+                    val vaultEntries = ContactThreadHelper.buildVaultContactEntries(combined, state.availableContacts)
+                    val validSelected = state.vaultSelectedContacts.filter { sel ->
+                        vaultEntries.any { it.contact.id == sel.id }
+                    }
+                    state.copy(
+                        quarantinedMessages = items,
+                        vaultContactEntries = vaultEntries,
+                        vaultSelectedContacts = validSelected
+                    )
+                }
             }
         }
 
@@ -250,7 +276,18 @@ class CleanSmsViewModel @JvmOverloads constructor(
                 val items = withContext(Dispatchers.Default) {
                     entities.map { it.toSmsMessageItem() }
                 }
-                _uiState.update { it.copy(deletedTestMessages = items) }
+                _uiState.update { state ->
+                    val combined = state.quarantinedMessages + items
+                    val vaultEntries = ContactThreadHelper.buildVaultContactEntries(combined, state.availableContacts)
+                    val validSelected = state.vaultSelectedContacts.filter { sel ->
+                        vaultEntries.any { it.contact.id == sel.id }
+                    }
+                    state.copy(
+                        deletedTestMessages = items,
+                        vaultContactEntries = vaultEntries,
+                        vaultSelectedContacts = validSelected
+                    )
+                }
             }
         }
 
@@ -394,7 +431,17 @@ class CleanSmsViewModel @JvmOverloads constructor(
                 val activeRaw = if (quarantinedIds.isEmpty()) raw else raw.filterNot { it.id in quarantinedIds }
                 val mergedContacts = repository.getMergedContactsForMessages(activeRaw, deviceContacts)
 
-                val contactTokens = buildSelectedContactTokens(stateSnapshot.selectedContacts)
+                val contactScope = ContactThreadHelper.buildScope(
+                    enabled = stateSnapshot.filterByContactEnabled,
+                    mode = stateSnapshot.contactFilterMode,
+                    selectedContacts = stateSnapshot.selectedContacts,
+                    messages = activeRaw
+                )
+                val scannerEntries = ContactThreadHelper.buildEntriesForInbox(mergedContacts, activeRaw)
+                val vaultEntries = ContactThreadHelper.buildVaultContactEntries(
+                    stateSnapshot.quarantinedMessages + stateSnapshot.deletedTestMessages,
+                    mergedContacts
+                )
                 val classified = SmsClassifier.classifyMessages(
                     rawMessages = activeRaw,
                     activeRules = stateSnapshot.customRules,
@@ -405,13 +452,23 @@ class CleanSmsViewModel @JvmOverloads constructor(
                     filterSpam = stateSnapshot.filterSpam,
                     duplicateKeepStrategy = stateSnapshot.duplicateKeepStrategy,
                     filterByContactEnabled = stateSnapshot.filterByContactEnabled,
-                    selectedContactTokens = contactTokens,
-                    contactFilterMode = stateSnapshot.contactFilterMode
+                    selectedContactTokens = contactScope.matchTokens,
+                    contactFilterMode = stateSnapshot.contactFilterMode,
+                    selectedContactThreadIds = contactScope.selectedThreadIds
                 )
                 val summary = SmsClassifier.computeSummary(classified)
                 val clusters = SmsClassifier.extractDuplicateThreadClusters(classified)
 
-                RefreshResult(activeRaw, classified, summary, clusters, mergedContacts)
+                RefreshResult(
+                    activeRaw = activeRaw,
+                    classified = classified,
+                    summary = summary,
+                    clusters = clusters,
+                    mergedContacts = mergedContacts,
+                    contactScope = contactScope,
+                    scannerEntries = scannerEntries,
+                    vaultEntries = vaultEntries
+                )
             }
 
             _uiState.update {
@@ -421,6 +478,9 @@ class CleanSmsViewModel @JvmOverloads constructor(
                     summary = result.summary,
                     duplicateThreadClusters = result.clusters,
                     availableContacts = result.mergedContacts,
+                    contactFilterScope = result.contactScope,
+                    scannerContactEntries = result.scannerEntries,
+                    vaultContactEntries = result.vaultEntries,
                     isScanning = false
                 )
             }
@@ -433,7 +493,12 @@ class CleanSmsViewModel @JvmOverloads constructor(
             if (debounceMs > 0L) delay(debounceMs)
             val snapshot = _uiState.value
             val result = withContext(Dispatchers.Default) {
-                val contactTokens = buildSelectedContactTokens(snapshot.selectedContacts)
+                val contactScope = ContactThreadHelper.buildScope(
+                    enabled = snapshot.filterByContactEnabled,
+                    mode = snapshot.contactFilterMode,
+                    selectedContacts = snapshot.selectedContacts,
+                    messages = snapshot.allMessages
+                )
                 val classified = SmsClassifier.classifyMessages(
                     rawMessages = snapshot.allMessages,
                     activeRules = snapshot.customRules,
@@ -444,44 +509,61 @@ class CleanSmsViewModel @JvmOverloads constructor(
                     filterSpam = snapshot.filterSpam,
                     duplicateKeepStrategy = snapshot.duplicateKeepStrategy,
                     filterByContactEnabled = snapshot.filterByContactEnabled,
-                    selectedContactTokens = contactTokens,
-                    contactFilterMode = snapshot.contactFilterMode
+                    selectedContactTokens = contactScope.matchTokens,
+                    contactFilterMode = snapshot.contactFilterMode,
+                    selectedContactThreadIds = contactScope.selectedThreadIds
                 )
                 val summary = SmsClassifier.computeSummary(classified)
                 val clusters = SmsClassifier.extractDuplicateThreadClusters(classified)
-                Triple(classified, summary, clusters)
+                val scannerEntries = ContactThreadHelper.buildEntriesForInbox(snapshot.availableContacts, snapshot.allMessages)
+                QuadResult(classified, summary, clusters, contactScope, scannerEntries)
             }
             _uiState.update {
                 it.copy(
-                    classifiedMessages = result.first,
-                    summary = result.second,
-                    duplicateThreadClusters = result.third
+                    classifiedMessages = result.classified,
+                    summary = result.summary,
+                    duplicateThreadClusters = result.clusters,
+                    contactFilterScope = result.contactScope,
+                    scannerContactEntries = result.scannerEntries
                 )
             }
         }
     }
 
     private fun buildSelectedContactTokens(contacts: List<ContactInfo>): Set<String> {
-        if (contacts.isEmpty()) return emptySet()
-        val tokens = HashSet<String>(contacts.size * 3)
-        for (c in contacts) {
-            tokens.add(c.id.trim().lowercase())
-            tokens.add(c.displayName.trim().lowercase())
-            for (phone in c.phoneNumbers) {
-                tokens.addAll(PhoneNormalizer.extractMatchKeys(phone))
-            }
-        }
-        return tokens
+        return ContactThreadHelper.collectTokensForContacts(contacts)
     }
 
-    // Per-Contact Filter Controls (Main Detection Rules)
+    // Per-Contact Filter Controls (Main Detection Rules & Thread-Scoped Deduplication)
     fun toggleContactFilter(enabled: Boolean) {
-        _uiState.update { it.copy(filterByContactEnabled = enabled) }
+        _uiState.update { state ->
+            val nextScope = ContactThreadHelper.buildScope(
+                enabled = enabled,
+                mode = state.contactFilterMode,
+                selectedContacts = state.selectedContacts,
+                messages = state.allMessages
+            )
+            state.copy(
+                filterByContactEnabled = enabled,
+                contactFilterScope = nextScope
+            )
+        }
         reclassifyCurrentMessagesAsync()
     }
 
     fun setContactFilterMode(mode: ContactFilterMode) {
-        _uiState.update { it.copy(contactFilterMode = mode) }
+        _uiState.update { state ->
+            val nextScope = ContactThreadHelper.buildScope(
+                enabled = state.filterByContactEnabled,
+                mode = mode,
+                selectedContacts = state.selectedContacts,
+                messages = state.allMessages
+            )
+            state.copy(
+                contactFilterMode = mode,
+                contactFilterScope = nextScope
+            )
+        }
         reclassifyCurrentMessagesAsync()
     }
 
@@ -493,27 +575,131 @@ class CleanSmsViewModel @JvmOverloads constructor(
             } else {
                 state.selectedContacts + contact
             }
+            val nextEnabled = if (updated.isNotEmpty()) true else state.filterByContactEnabled
+            val nextScope = ContactThreadHelper.buildScope(
+                enabled = nextEnabled,
+                mode = state.contactFilterMode,
+                selectedContacts = updated,
+                messages = state.allMessages
+            )
             state.copy(
                 selectedContacts = updated,
-                filterByContactEnabled = if (updated.isNotEmpty()) true else state.filterByContactEnabled
+                filterByContactEnabled = nextEnabled,
+                contactFilterScope = nextScope
             )
         }
         reclassifyCurrentMessagesAsync()
     }
 
     fun setSelectedContacts(contacts: List<ContactInfo>) {
-        _uiState.update {
-            it.copy(
+        _uiState.update { state ->
+            val nextEnabled = contacts.isNotEmpty()
+            val nextScope = ContactThreadHelper.buildScope(
+                enabled = nextEnabled,
+                mode = state.contactFilterMode,
                 selectedContacts = contacts,
-                filterByContactEnabled = contacts.isNotEmpty()
+                messages = state.allMessages
+            )
+            state.copy(
+                selectedContacts = contacts,
+                filterByContactEnabled = nextEnabled,
+                contactFilterScope = nextScope
+            )
+        }
+        reclassifyCurrentMessagesAsync()
+    }
+
+    fun selectAllFilterContacts() {
+        _uiState.update { state ->
+            val all = state.scannerContactEntries.map { it.contact }.ifEmpty { state.availableContacts }
+            val nextScope = ContactThreadHelper.buildScope(
+                enabled = all.isNotEmpty(),
+                mode = state.contactFilterMode,
+                selectedContacts = all,
+                messages = state.allMessages
+            )
+            state.copy(
+                selectedContacts = all,
+                filterByContactEnabled = if (all.isNotEmpty()) true else state.filterByContactEnabled,
+                contactFilterScope = nextScope
             )
         }
         reclassifyCurrentMessagesAsync()
     }
 
     fun clearSelectedContacts() {
-        _uiState.update { it.copy(selectedContacts = emptyList()) }
+        _uiState.update { state ->
+            state.copy(
+                selectedContacts = emptyList(),
+                contactFilterScope = ContactThreadHelper.buildScope(
+                    enabled = state.filterByContactEnabled,
+                    mode = state.contactFilterMode,
+                    selectedContacts = emptyList(),
+                    messages = state.allMessages
+                )
+            )
+        }
         reclassifyCurrentMessagesAsync()
+    }
+
+    // Vault Contact Group Review Filter Controls
+    fun toggleVaultContactFilter(enabled: Boolean) {
+        _uiState.update { it.copy(vaultFilterByContactEnabled = enabled) }
+    }
+
+    fun toggleVaultSelectedContact(contact: ContactInfo) {
+        _uiState.update { state ->
+            val exists = state.vaultSelectedContacts.any { it.id == contact.id }
+            val updated = if (exists) {
+                state.vaultSelectedContacts.filterNot { it.id == contact.id }
+            } else {
+                state.vaultSelectedContacts + contact
+            }
+            state.copy(
+                vaultSelectedContacts = updated,
+                vaultFilterByContactEnabled = updated.isNotEmpty()
+            )
+        }
+    }
+
+    fun selectAllVaultContacts() {
+        _uiState.update { state ->
+            val all = state.vaultContactEntries.map { it.contact }
+            state.copy(
+                vaultSelectedContacts = all,
+                vaultFilterByContactEnabled = all.isNotEmpty()
+            )
+        }
+    }
+
+    fun clearVaultSelectedContacts() {
+        _uiState.update {
+            it.copy(
+                vaultSelectedContacts = emptyList(),
+                vaultFilterByContactEnabled = false
+            )
+        }
+    }
+
+    fun toggleVaultGroupByContact(grouped: Boolean) {
+        _uiState.update { it.copy(vaultGroupByContact = grouped) }
+    }
+
+    fun selectVaultMessagesByIds(messageIds: Set<String>, select: Boolean, isDeletedTest: Boolean) {
+        if (messageIds.isEmpty()) return
+        _uiState.update { state ->
+            if (isDeletedTest) {
+                val updated = state.deletedTestMessages.map { msg ->
+                    if (msg.id in messageIds) msg.copy(isSelected = select) else msg
+                }
+                state.copy(deletedTestMessages = updated)
+            } else {
+                val updated = state.quarantinedMessages.map { msg ->
+                    if (msg.id in messageIds) msg.copy(isSelected = select) else msg
+                }
+                state.copy(quarantinedMessages = updated)
+            }
+        }
     }
 
     fun openMainContactPicker() {
@@ -1278,23 +1464,206 @@ class CleanSmsViewModel @JvmOverloads constructor(
                 }
             }.onFailure { err ->
                 val msg = err.message ?: "Unable to reach GitHub Releases."
+                    _uiState.update {
+                        it.copy(
+                            updateCheckStatus = if (userInitiated) UpdateCheckStatus.ERROR else UpdateCheckStatus.IDLE,
+                            updateCheckResult = UpdateCheckResult(
+                                repoSlug = repoSlug,
+                                installedVersionName = com.example.BuildConfig.VERSION_NAME,
+                                installedVersionCode = com.example.BuildConfig.VERSION_CODE,
+                                includePrereleases = includePre,
+                                latestRelease = it.updateCheckResult?.latestRelease,
+                                upgradeChain = emptyList(),
+                                isUpdateAvailable = false,
+                                errorMessage = msg
+                            ),
+                            snackbarMessage = if (userInitiated) msg else it.snackbarMessage
+                        )
+                    }
+                }
+            }
+        }
+
+    /**
+     * Downloads the release APK directly into app-private cache storage, verifies its SHA-256 digest
+     * if available, and transitions cleanly to install (or prompts for unknown-app-sources permission).
+     */
+    fun downloadAndInstallUpdate() {
+        val result = _uiState.value.updateCheckResult
+        val apkAsset = result?.latestRelease?.apkAsset
+        if (apkAsset == null || apkAsset.downloadUrl.isBlank()) {
+            _uiState.update {
+                it.copy(
+                    inAppDownloadState = InAppDownloadState(
+                        phase = InAppUpdateInstallPhase.FAILED,
+                        errorMessage = "No downloadable APK asset found on this release."
+                    ),
+                    snackbarMessage = "No APK asset attached to this release."
+                )
+            }
+            return
+        }
+
+        val appContext = getApplication<Application>()
+        val destFile = InAppApkInstaller.resolveApkDestination(appContext, apkAsset.name)
+        val expectedSha = result.verifiedSha256 ?: apkAsset.sha256Checksum
+
+        apkDownloadJob?.cancel()
+        _uiState.update {
+            it.copy(
+                inAppDownloadState = InAppDownloadState(
+                    phase = InAppUpdateInstallPhase.DOWNLOADING,
+                    downloadedBytes = 0L,
+                    totalBytes = apkAsset.sizeBytes,
+                    progressFraction = 0f,
+                    apkFilePath = destFile.absolutePath,
+                    apkFileName = apkAsset.name
+                )
+            )
+        }
+
+        apkDownloadJob = viewModelScope.launch {
+            InAppApkInstaller.cleanupStaleApks(appContext, keepFileName = destFile.name)
+
+            val downloadResult = updateRepository.downloadApkUpdate(
+                downloadUrl = apkAsset.downloadUrl,
+                destinationFile = destFile,
+                expectedSha256 = expectedSha,
+                onProgress = { downloaded, total ->
+                    val effectiveTotal = if (total > 0L) total else apkAsset.sizeBytes
+                    val fraction = if (effectiveTotal > 0L) {
+                        (downloaded.toFloat() / effectiveTotal.toFloat()).coerceIn(0f, 1f)
+                    } else {
+                        0f
+                    }
+                    _uiState.update { state ->
+                        if (state.inAppDownloadState.phase == InAppUpdateInstallPhase.DOWNLOADING) {
+                            state.copy(
+                                inAppDownloadState = state.inAppDownloadState.copy(
+                                    downloadedBytes = downloaded,
+                                    totalBytes = effectiveTotal,
+                                    progressFraction = fraction
+                                )
+                            )
+                        } else {
+                            state
+                        }
+                    }
+                }
+            )
+
+            downloadResult.onSuccess { downloaded ->
+                val canInstall = InAppApkInstaller.canInstallUnknownApps(appContext)
+                val nextPhase = if (canInstall) {
+                    InAppUpdateInstallPhase.READY_TO_INSTALL
+                } else {
+                    InAppUpdateInstallPhase.PERMISSION_REQUIRED
+                }
                 _uiState.update {
                     it.copy(
-                        updateCheckStatus = if (userInitiated) UpdateCheckStatus.ERROR else UpdateCheckStatus.IDLE,
-                        updateCheckResult = UpdateCheckResult(
-                            repoSlug = repoSlug,
-                            installedVersionName = com.example.BuildConfig.VERSION_NAME,
-                            installedVersionCode = com.example.BuildConfig.VERSION_CODE,
-                            includePrereleases = includePre,
-                            latestRelease = it.updateCheckResult?.latestRelease,
-                            upgradeChain = emptyList(),
-                            isUpdateAvailable = false,
+                        inAppDownloadState = InAppDownloadState(
+                            phase = nextPhase,
+                            downloadedBytes = downloaded.bytesDownloaded,
+                            totalBytes = downloaded.bytesDownloaded,
+                            progressFraction = 1f,
+                            apkFilePath = downloaded.filePath,
+                            apkFileName = downloaded.fileName,
+                            verifiedSha256 = downloaded.computedSha256,
+                            sha256Matched = downloaded.sha256Verified,
+                            errorMessage = null
+                        ),
+                        snackbarMessage = if (canInstall) {
+                            "Update APK verified. Launching system installer..."
+                        } else {
+                            "Download verified. Allow 'Install unknown apps' to finish updating."
+                        }
+                    )
+                }
+            }.onFailure { err ->
+                val msg = err.message ?: "Unable to download update APK."
+                _uiState.update {
+                    it.copy(
+                        inAppDownloadState = InAppDownloadState(
+                            phase = InAppUpdateInstallPhase.FAILED,
                             errorMessage = msg
                         ),
-                        snackbarMessage = if (userInitiated) msg else it.snackbarMessage
+                        snackbarMessage = msg
                     )
                 }
             }
+        }
+    }
+
+    fun cancelUpdateDownload() {
+        apkDownloadJob?.cancel()
+        apkDownloadJob = null
+        _uiState.update {
+            it.copy(
+                inAppDownloadState = InAppDownloadState(phase = InAppUpdateInstallPhase.IDLE),
+                snackbarMessage = "Update download cancelled."
+            )
+        }
+    }
+
+    fun onInstallPermissionReturned() {
+        val current = _uiState.value.inAppDownloadState
+        val apkPath = current.apkFilePath
+        if (apkPath.isNullOrBlank()) return
+        val canInstall = InAppApkInstaller.canInstallUnknownApps(getApplication())
+        if (canInstall) {
+            _uiState.update {
+                it.copy(
+                    inAppDownloadState = it.inAppDownloadState.copy(
+                        phase = InAppUpdateInstallPhase.READY_TO_INSTALL,
+                        errorMessage = null
+                    )
+                )
+            }
+        } else {
+            _uiState.update {
+                it.copy(
+                    inAppDownloadState = it.inAppDownloadState.copy(
+                        phase = InAppUpdateInstallPhase.PERMISSION_REQUIRED,
+                        errorMessage = "Permission to install unknown apps is still disabled in Android Settings."
+                    )
+                )
+            }
+        }
+    }
+
+    fun triggerPendingApkInstall() {
+        val current = _uiState.value.inAppDownloadState
+        if (current.apkFilePath.isNullOrBlank()) return
+        val canInstall = InAppApkInstaller.canInstallUnknownApps(getApplication())
+        _uiState.update {
+            it.copy(
+                inAppDownloadState = it.inAppDownloadState.copy(
+                    phase = if (canInstall) InAppUpdateInstallPhase.READY_TO_INSTALL else InAppUpdateInstallPhase.PERMISSION_REQUIRED
+                )
+            )
+        }
+    }
+
+    fun markApkInstallLaunched() {
+        _uiState.update { state ->
+            state.copy(
+                inAppDownloadState = state.inAppDownloadState.copy(
+                    phase = InAppUpdateInstallPhase.INSTALL_LAUNCHED,
+                    errorMessage = null
+                )
+            )
+        }
+    }
+
+    fun markApkInstallFailed(message: String) {
+        _uiState.update { state ->
+            state.copy(
+                inAppDownloadState = state.inAppDownloadState.copy(
+                    phase = InAppUpdateInstallPhase.FAILED,
+                    errorMessage = message
+                ),
+                snackbarMessage = message
+            )
         }
     }
 
@@ -1442,7 +1811,18 @@ class CleanSmsViewModel @JvmOverloads constructor(
         val classified: List<SmsMessageItem>,
         val summary: ClassificationSummary,
         val clusters: List<DuplicateThreadCluster>,
-        val mergedContacts: List<ContactInfo>
+        val mergedContacts: List<ContactInfo>,
+        val contactScope: ContactThreadFilterScope,
+        val scannerEntries: List<ContactThreadEntry>,
+        val vaultEntries: List<ContactThreadEntry>
+    )
+
+    private data class QuadResult(
+        val classified: List<SmsMessageItem>,
+        val summary: ClassificationSummary,
+        val clusters: List<DuplicateThreadCluster>,
+        val contactScope: ContactThreadFilterScope,
+        val scannerEntries: List<ContactThreadEntry>
     )
 
     companion object {
