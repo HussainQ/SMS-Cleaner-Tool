@@ -10,9 +10,10 @@ import androidx.room.RoomDatabase
         QuarantineEntity::class,
         CustomRuleEntity::class,
         BackupRecordEntity::class,
-        OAuthCredentialEntity::class
+        OAuthCredentialEntity::class,
+        DeletedTestSnapshotEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -29,7 +30,8 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "cleansms_database"
                 )
-                    .fallbackToDestructiveMigration(true)
+                    .addMigrations(*DatabaseMigrations.ALL_MIGRATIONS)
+                    .fallbackToDestructiveMigrationOnDowngrade(true)
                     .build()
                 INSTANCE = instance
                 instance

@@ -7,13 +7,13 @@
 [![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-M3%20BOM-4285F4?style=flat-square&logo=jetpackcompose&logoColor=white)](https://developer.android.com/jetpack/compose)
 [![Min SDK](https://img.shields.io/badge/Min%20SDK-24%20(Android%207.0)-informational?style=flat-square)](https://developer.android.com/about/versions)
 [![Target SDK](https://img.shields.io/badge/Target%20SDK-36%20(Android%2016)-success?style=flat-square)](https://developer.android.com/about/versions)
-[![Privacy](https://img.shields.io/badge/Privacy-100%25%20On--Device-success?style=flat-square&logo=shield)](https://github.com)
-[![Pre-Release](https://img.shields.io/badge/Pre--Release-v1.5.0--pre.1%20(Local%20Test%20Only)-amber?style=flat-square)](RELEASE_NOTES.md)
+[![Privacy](https://img.shields.io/badge/Privacy-100%25%20On--Device-success?style=flat-square&logo=shield)](https://github.com/HussainQ/SMS-Cleaner-Tool)
+[![Pre-Release](https://img.shields.io/badge/Pre--Release-v1.6.0--pre.1%20(Local%20Test%20Only)-amber?style=flat-square)](https://github.com/HussainQ/SMS-Cleaner-Tool/releases)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue?style=flat-square)](LICENSE)
 
 > [!WARNING]
-> **Current Pre-Release (`v1.5.0-pre.1`) — Non-Production / Local Device Testing Only**:
-> This repository's active pre-release (`v1.5.0-pre.1`, `versionCode = 10500`) is designated strictly for **non-production evaluation and testing on a local Android device**. See [`RELEASE_NOTES.md`](RELEASE_NOTES.md) and [`.github/workflows/prerelease.yml`](.github/workflows/prerelease.yml) for full details and SHA-256 verification.
+> **Current Pre-Release (`v1.6.0-pre.1`) — Non-Production / Local Device Testing Only**:
+> This repository's active pre-release (`v1.6.0-pre.1`, `versionCode = 10600`) is designated strictly for **non-production evaluation and testing on a local Android device**. See [`RELEASE_NOTES.md`](RELEASE_NOTES.md), [GitHub Releases](https://github.com/HussainQ/SMS-Cleaner-Tool/releases), and [`.github/workflows/prerelease.yml`](.github/workflows/prerelease.yml) for full details and SHA-256 verification.
 
 ---
 
@@ -35,23 +35,24 @@
 - **RCS Thread Integrity**: Correctly recognizes Rich Communication Services (RCS) chats, preserving conversation thread IDs (`threadId`), delivery status, and read receipts (`READ`, `DELIVERED`, `SENT`).
 - **Configurable Keep Strategy**: Choose between `KEEP_OLDEST` (preserves original conversation anchor) or `KEEP_NEWEST` (keeps the latest retry).
 
-### 2. 🛡️ Quarantine Vault & Reversible Deletion
-- **Zero Accidental Data Loss**: Cleaned messages are moved to an encrypted local **Quarantine Vault** before permanent deletion.
-- **Instant Restore**: Inspect message contents, match reasons, and restore any quarantined message back to your active inbox with one tap.
+### 2. 🛡️ Quarantine Vault & Testing Delete Recovery
+- **Zero Accidental Data Loss**: Cleaned messages are moved to a local **Quarantine Vault** before permanent deletion.
+- **Testing Feature — Recover Permanently Deleted Messages (Toggle)**: When enabled, permanent deletions store local recovery snapshots (`deleted_test_snapshots`) in **Vault > Deleted Test** so testers can restore deleted messages back to the inbox and re-verify rules.
 - **Permanent Deletion Protection**: Explicit confirmation dialog safeguards against irreversible removals.
 
-### 3. 🔍 Clutter Classification & Instant Search
-- **Expired OTP Detection**: Identifies temporary verification codes (Google `G-`, Facebook `FB-`, banking PINs) while preserving fresh, unexpired codes.
-- **Promotional & Spam Filters**: Flags commercial discounts, marketing blasts, and suspicious phishing links.
-- **Live Search & Filter Chips**: Filter candidate messages by keyword, sender, or category tab (All, Duplicates, OTPs, Promotions, Spam, Custom Rules) with instant substring search.
+### 3. 🔍 Per-Contact Filtering, Thread Linking & Instant Search
+- **Device Contacts & Google Messages Linking (`READ_CONTACTS`)**: Matches device address-book contacts with existing SMS/RCS threads via normalized phone keys (`PhoneNormalizer`).
+- **Target vs Protect (VIP) Modes**: Select contacts directly in **Main Detection Rules** (to target only selected contacts or shield VIP contacts) as well as inside **Custom Cleaning Rules**.
+- **Expired OTP, Promo & Spam Filters**: Identifies temporary verification codes (Google `G-`, Facebook `FB-`, banking PINs) while preserving fresh codes, and flags commercial blasts or phishing links.
+- **Debounced Live Search & Summary Badges**: O(1) `ClassificationSummary` counts and background-filtered search (`Dispatchers.Default`) keep scrolling smooth even on 5,000+ message inboxes.
 
-### 4. ⚙️ Granular Custom Filter Rules Engine
+### 4. ⚙️ Editable Custom Filter Rules Engine
 - User-defined rule engine supporting:
-  - Sender match (exact or substring).
+  - Per-contact multi-select picker (`ContactPickerDialog`).
+  - Sender match (exact, contact display name, or substring).
   - Keyword matching with **AND** / **OR** logic (`matchAnyKeyword`).
-  - Age thresholding (e.g. older than 7, 30, or 90 days).
-  - Date ranges with epoch boundary validation.
-- Rules can be enabled, disabled, edited, or deleted anytime.
+  - Age thresholding (e.g. older than 7, 30, or 90 days) and date ranges.
+- Existing rules can be **edited in place**, toggled, or deleted anytime.
 
 ### 5. 🔐 On-Device OAuth Secrets Vault & Cloud Backup
 - **Explicit Authorization Gate**: On-device OAuth tokens (Google Drive, Dropbox) are pulled **if and only if** the user explicitly authorises the connection via the `AuthorizeServiceDialog`.
@@ -60,17 +61,17 @@
 - **One-Tap Revocation & Purge**: Users can revoke service access or permanently wipe all stored credentials via the "Purge All Secrets" button.
 - **Portable JSON Snapshots**: Export and restore full encrypted backups of quarantined messages and custom rules.
 
-### 6. 🔒 Android Runtime Permissions Flow (`READ_SMS` & `WRITE_SMS`)
-- Fully compliant with modern Android permission guidelines:
-  - Requests `READ_SMS` (scan, categorize, and detect clutter) and `WRITE_SMS` (delete duplicates and clean inbox) using `ActivityResultContracts.RequestMultiplePermissions()`.
-  - Educational rationale dialog (`SmsPermissionRationaleDialog`) explains permissions clearly before requesting.
-  - App Settings redirect (`SmsPermissionSettingsDialog`) if permissions were permanently denied.
-  - Live status indicator banner (`SmsPermissionsBanner`) on dashboard.
-  - Built-in **Demo Mode** allows exploring all app features with 30+ simulated messages without granting device permissions.
+### 6. 🔒 Runtime Permissions (`READ_SMS`, `WRITE_SMS`, `READ_CONTACTS`) & Seamless SMS Role Hand-Back
+- **Runtime Permissions**: Requests `READ_SMS`, `WRITE_SMS`, and `READ_CONTACTS` via `ActivityResultContracts`, with educational rationale and Settings redirect dialogs plus **Demo Mode** fallback.
+- **Seamless Default SMS Role Workflow**: Tracks the prior Default SMS app (e.g., Google Messages), transitions out of the amber prompt when active, and provides a one-tap **"Hand Back Default SMS Role"** workflow when finished cleaning.
 
 ### 7. 📐 Responsive & Adaptive Layouts
 - **Tablet & Foldable Support**: Adapts automatically on wide screens (`maxWidth >= 720.dp`) using a side `NavigationRail` and two-column split cards.
 - **Compact Phone Layout**: Optimized bottom navigation, segmented tabs, and fluid touch targets (minimum 48dp).
+
+### 8. 🔄 In-App GitHub Release Updater & Airtight Multi-Version Migrations
+- **GitHub Releases API Sync**: Checks [`HussainQ/SMS-Cleaner-Tool`](https://github.com/HussainQ/SMS-Cleaner-Tool/releases) using SemVer 2.0.0 ordering across both stable and pre-release tracks.
+- **Multi-Version Upgrade Path**: Aggregates changelogs across any skipped intermediate versions, fetches `.apk` + `.sha256` verification assets, and pairs with non-destructive Room (`v1 → v4`) and preference migrations so multi-version jumps preserve all user data.
 
 ---
 
@@ -86,8 +87,8 @@
 | **Minimum SDK** | `Android 7.0 (API 24)` |
 | **UI Framework** | Jetpack Compose (Material Design 3) |
 | **Architecture** | Clean Architecture / MVVM + StateFlow |
-| **Local Database** | Room Database v3 (KSP) |
-| **Default SMS Role** | Fully eligible with SMS Deliver & Headless Send services |
+| **Local Database** | Room Database v4 (KSP) |
+| **Default SMS Role** | Seamless Role Takeover & Hand-Back (`RoleManager` / `ACTION_MANAGE_DEFAULT_APPS_SETTINGS`) |
 
 ### Declared System Permissions
 
@@ -95,8 +96,11 @@
 <!-- Manifest Permissions in AndroidManifest.xml -->
 <uses-permission android:name="android.permission.READ_SMS" />
 <uses-permission android:name="android.permission.WRITE_SMS" />
+<uses-permission android:name="android.permission.SEND_SMS" />
 <uses-permission android:name="android.permission.RECEIVE_SMS" />
 <uses-permission android:name="android.permission.RECEIVE_MMS" />
+<uses-permission android:name="android.permission.RECEIVE_WAP_PUSH" />
+<uses-permission android:name="android.permission.READ_CONTACTS" />
 <uses-permission android:name="android.permission.INTERNET" />
 <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 ```
@@ -120,7 +124,8 @@ $$\text{Version Code} = (\text{MAJOR} \times 10000) + (\text{MINOR} \times 100) 
 | `v1.2.0` | `1.2.0` | `10200` | Beta | RCS message support, thread cluster deduplication, read receipt preservation |
 | `v1.3.0` | `1.3.0` | `10300` | Beta | Reactive foldable & tablet layouts, search bar, secrets audit |
 | `v1.4.0` | `1.4.0` | `10400` | Beta | On-device OAuth secret pulling, user authorization gate, local vault storage |
-| `v1.5.0-pre.1` | `1.5.0-pre.1` | `10500` | **Pre-Release (Non-Production • Local Device Test Only)** | Android Runtime & Manifest SMS Permissions (`READ_SMS`, `RECEIVE_SMS`, `WRITE_SMS`), ViewModel Factory fix, local testing APK |
+| `v1.5.0-pre.1` | `1.5.0-pre.1` | `10500` | Pre-Release (Local Test Only) | Android Runtime & Manifest SMS Permissions (`READ_SMS`, `RECEIVE_SMS`, `WRITE_SMS`), ViewModel Factory fix |
+| `v1.6.0-pre.1` | `1.6.0-pre.1` | `10600` | **Pre-Release (Non-Production • Local Device Test Only)** | Per-contact filtering (`READ_CONTACTS`), seamless Default SMS role hand-back, testing deleted-message recovery toggle, editable custom rules, 5,000+ inbox ANR/performance optimizations |
 
 ### Release Tracks
 

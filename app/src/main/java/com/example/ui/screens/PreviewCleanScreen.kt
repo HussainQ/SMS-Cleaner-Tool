@@ -3,6 +3,7 @@ package com.example.ui.screens
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -19,56 +20,80 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.DuplicateKeepStrategy
+import com.example.model.MessageProtocol
 import com.example.model.SmsCategory
+import com.example.model.SmsMessageItem
 import com.example.ui.CleanSmsUiState
 import com.example.ui.CleanSmsViewModel
 import com.example.ui.components.MessageCard
 import com.example.ui.components.ThreadDuplicateClusterCard
 import com.example.ui.theme.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 @Composable
 fun PreviewCleanScreen(
     uiState: CleanSmsUiState,
     viewModel: CleanSmsViewModel,
+    onRequestDefaultSmsRole: () -> Unit = {},
+    onHandBackDefaultSmsRole: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var searchInput by remember { mutableStateOf(uiState.searchQuery) }
 
-    // Quick suggestion keywords for search
-    val quickSearchSuggestions = listOf("RCS", "Amazon", "Uber", "OTP", "Dominos", "Sale", "Verify", "Bank")
+    // Debounce search query updates to avoid per-keystroke stalls on large inboxes
+    LaunchedEffect(searchInput) {
+        if (searchInput.isEmpty()) {
+            viewModel.setSearchQuery("")
+        } else {
+            delay(150)
+            viewModel.setSearchQuery(searchInput)
+        }
+    }
 
-    // Filter candidates matching category tab and search query
-    val cleanableMessages = remember(
+    // Quick suggestion keywords for search
+    val quickSearchSuggestions = remember {
+        listOf("RCS", "Amazon", "Uber", "OTP", "Dominos", "Sale", "Verify", "Bank")
+    }
+
+    // Filter candidates on Dispatchers.Default so scrolling and typing stay 60fps
+    val cleanableMessages by produceState<List<SmsMessageItem>>(
+        initialValue = emptyList(),
         uiState.classifiedMessages,
         uiState.selectedCategoryTab,
         uiState.searchQuery
     ) {
-        val query = uiState.searchQuery.trim().lowercase()
-        uiState.classifiedMessages.filter { msg ->
-            val matchesCandidate = msg.isCleanCandidate
-            val matchesCategory = when (uiState.selectedCategoryTab) {
-                SmsCategory.ALL -> matchesCandidate
-                else -> msg.category == uiState.selectedCategoryTab && matchesCandidate
-            }
-            val matchesSearch = if (query.isBlank()) {
-                true
-            } else {
-                msg.address.lowercase().contains(query) ||
+        value = withContext(Dispatchers.Default) {
+            val query = uiState.searchQuery.trim().lowercase()
+            val selectedTab = uiState.selectedCategoryTab
+            uiState.classifiedMessages.filter { msg ->
+                if (!msg.isCleanCandidate) return@filter false
+                val matchesCategory = selectedTab == SmsCategory.ALL || msg.category == selectedTab
+                if (!matchesCategory) return@filter false
+                if (query.isEmpty()) {
+                    true
+                } else {
+                    msg.displaySender.lowercase().contains(query) ||
+                        msg.address.lowercase().contains(query) ||
                         msg.body.lowercase().contains(query) ||
-                        (query == "rcs" && (msg.isRcsChat || msg.protocol == com.example.model.MessageProtocol.RCS_CHAT)) ||
+                        (query == "rcs" && (msg.isRcsChat || msg.protocol == MessageProtocol.RCS_CHAT)) ||
                         (msg.otpCode != null && msg.otpCode.contains(query)) ||
                         msg.matchReason.lowercase().contains(query)
+                }
             }
-            matchesCategory && matchesSearch
         }
     }
 
-    val selectedCount = cleanableMessages.count { it.isSelected }
-    val allSelected = cleanableMessages.isNotEmpty() && cleanableMessages.all { it.isSelected }
-    val matchingIds = remember(cleanableMessages) { cleanableMessages.map { it.id }.toSet() }
+    val selectedCount = remember(cleanableMessages) { cleanableMessages.count { it.isSelected } }
+    val allSelected = remember(cleanableMessages, selectedCount) {
+        cleanableMessages.isNotEmpty() && selectedCount == cleanableMessages.size
+    }
+    val matchingIds = remember(cleanableMessages) { cleanableMessages.mapTo(HashSet()) { it.id } }
 
     val isDuplicateTab = uiState.selectedCategoryTab == SmsCategory.DUPLICATE
     val threadClusters = uiState.duplicateThreadClusters
@@ -91,16 +116,105 @@ fun PreviewCleanScreen(
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                // Default SMS status indicator or inline request prompt in Device Mode
+                if (uiState.isDefaultSmsApp) {
+                    Surface(
+                        color = TealAccent.copy(alpha = 0.14f),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, TealAccent.copy(alpha = 0.45f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("preview_default_sms_status_indicator")
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Verified,
+                                    contentDescription = "Default SMS App",
+                                    tint = TealAccent,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "Default SMS App • From ${uiState.previousDefaultSmsAppName}",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = TealAccent,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            TextButton(
+                                onClick = onHandBackDefaultSmsRole,
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                modifier = Modifier.testTag("preview_hand_back_sms_btn")
+                            ) {
+                                Text("Hand Back", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TealAccent)
+                            }
+                        }
+                    }
+                } else if (!uiState.isDemoMode) {
+                    Surface(
+                        color = AmberAccent.copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, AmberAccent.copy(alpha = 0.40f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("preview_default_sms_needed_bar")
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.AdminPanelSettings,
+                                    contentDescription = null,
+                                    tint = AmberAccent,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "Set as Default SMS App to delete permanently",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            TextButton(
+                                onClick = onRequestDefaultSmsRole,
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                modifier = Modifier.testTag("preview_set_default_sms_btn")
+                            ) {
+                                Text("Set Default", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = AmberAccent)
+                            }
+                        }
+                    }
+                }
+
                 // Interactive Search Bar
                 OutlinedTextField(
                     value = searchInput,
-                    onValueChange = {
-                        searchInput = it
-                        viewModel.setSearchQuery(it)
-                    },
+                    onValueChange = { searchInput = it },
                     placeholder = {
                         Text(
-                            text = "Search content, sender, or OTP code...",
+                            text = "Search contact, content, sender, or OTP...",
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )
@@ -203,7 +317,7 @@ fun PreviewCleanScreen(
                     }
                 }
 
-                // Category Filter Pills
+                // Category Filter Pills (O(1) precomputed summary counts)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -221,9 +335,7 @@ fun PreviewCleanScreen(
 
                     categories.forEach { cat ->
                         val isSelected = uiState.selectedCategoryTab == cat
-                        val count = uiState.classifiedMessages.count {
-                            if (cat == SmsCategory.ALL) it.isCleanCandidate else it.category == cat && it.isCleanCandidate
-                        }
+                        val count = uiState.summary.countFor(cat)
 
                         FilterChip(
                             selected = isSelected,

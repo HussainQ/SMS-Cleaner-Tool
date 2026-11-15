@@ -7,6 +7,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -20,9 +21,7 @@ import com.example.model.MessageProtocol
 import com.example.model.SmsCategory
 import com.example.model.SmsMessageItem
 import com.example.ui.theme.*
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import com.example.ui.util.DateFormatterUtil
 
 @Composable
 fun MessageCard(
@@ -32,7 +31,7 @@ fun MessageCard(
     onClickDetail: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val dateStr = SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault()).format(Date(message.date))
+    val dateStr = remember(message.date) { DateFormatterUtil.formatShort(message.date) }
 
     val badgeColor = when (message.category) {
         SmsCategory.DUPLICATE -> AmberAccent
@@ -93,7 +92,7 @@ fun MessageCard(
                         modifier = Modifier.weight(1f, fill = false)
                     ) {
                         Text(
-                            text = message.address,
+                            text = message.displaySender,
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp,
                             color = MaterialTheme.colorScheme.onSurface,

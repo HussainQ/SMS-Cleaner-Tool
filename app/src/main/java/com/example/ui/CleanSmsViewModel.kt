@@ -1,24 +1,41 @@
 package com.example.ui
 
 import android.app.Application
-import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.cloud.CloudBackupManager
+import com.example.cloud.DeviceOAuthManager
+import com.example.data.ClassificationSummary
 import com.example.data.SmsClassifier
 import com.example.data.SmsRepository
 import com.example.data.local.AppDatabase
 import com.example.data.local.CustomRuleEntity
+import com.example.data.local.DeletedTestSnapshotEntity
 import com.example.data.local.QuarantineEntity
 import com.example.model.BackupHistoryRecord
 import com.example.model.CloudBackupPayload
+import com.example.model.ContactFilterMode
+import com.example.model.ContactInfo
 import com.example.model.CustomFilterRule
+import com.example.model.DuplicateKeepStrategy
+import com.example.model.DuplicateThreadCluster
+import com.example.model.LocalOAuthCredential
+import com.example.model.MessageProtocol
+import com.example.model.OAuthServiceDefinition
+import com.example.model.PhoneNormalizer
 import com.example.model.SmsCategory
 import com.example.model.SmsMessageItem
 import com.example.telephony.TelephonyManagerHelper
+import com.example.update.AppUpgradeManager
+import com.example.update.GitHubUpdateRepository
+import com.example.update.UpdateCheckResult
+import com.example.update.UpdateCheckStatus
+import com.example.update.UpgradeMigrationReport
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,14 +48,27 @@ data class CleanSmsUiState(
     val hasReadSmsPermission: Boolean = false,
     val hasWriteSmsPermission: Boolean = false,
     val hasSmsPermission: Boolean = false,
+    val hasContactsPermission: Boolean = false,
     val isDefaultSmsApp: Boolean = false,
+    val previousDefaultSmsAppName: String = "Google Messages",
+    val previousDefaultSmsPackage: String = "com.google.android.apps.messaging",
     val showPermissionRationaleDialog: Boolean = false,
     val showPermissionPermanentlyDeniedDialog: Boolean = false,
     val allMessages: List<SmsMessageItem> = emptyList(),
     val classifiedMessages: List<SmsMessageItem> = emptyList(),
+    val summary: ClassificationSummary = ClassificationSummary(),
     val quarantinedMessages: List<SmsMessageItem> = emptyList(),
     val customRules: List<CustomFilterRule> = emptyList(),
     val backupHistory: List<BackupHistoryRecord> = emptyList(),
+    // Testing delete recovery toggle & snapshots
+    val testingRestoreDeletedEnabled: Boolean = true,
+    val deletedTestMessages: List<SmsMessageItem> = emptyList(),
+    // Contacts & Per-contact filter
+    val availableContacts: List<ContactInfo> = emptyList(),
+    val filterByContactEnabled: Boolean = false,
+    val selectedContacts: List<ContactInfo> = emptyList(),
+    val contactFilterMode: ContactFilterMode = ContactFilterMode.TARGET_CONTACTS,
+    val showMainContactPickerDialog: Boolean = false,
     val isScanning: Boolean = false,
     val searchQuery: String = "",
     val selectedCategoryTab: SmsCategory = SmsCategory.ALL,
@@ -50,18 +80,18 @@ data class CleanSmsUiState(
     val filterSpam: Boolean = true,
     val applyCustomRules: Boolean = true,
     // Duplicate thread fixing settings
-    val duplicateKeepStrategy: com.example.model.DuplicateKeepStrategy = com.example.model.DuplicateKeepStrategy.KEEP_OLDEST,
+    val duplicateKeepStrategy: DuplicateKeepStrategy = DuplicateKeepStrategy.KEEP_OLDEST,
     val groupByThreadsInDuplicates: Boolean = true,
-    val duplicateThreadClusters: List<com.example.model.DuplicateThreadCluster> = emptyList(),
+    val duplicateThreadClusters: List<DuplicateThreadCluster> = emptyList(),
     // Cloud settings
     val selectedCloudProvider: String = "Google Drive",
     val isGoogleDriveConnected: Boolean = false,
     val isDropboxConnected: Boolean = false,
     val autoBackupBeforeClean: Boolean = true,
     // On-device OAuth credentials vault
-    val authorizedOAuthCredentials: List<com.example.model.LocalOAuthCredential> = emptyList(),
+    val authorizedOAuthCredentials: List<LocalOAuthCredential> = emptyList(),
     val availableDeviceAccounts: List<String> = listOf("shqsid@gmail.com"),
-    val serviceToAuthorize: com.example.model.OAuthServiceDefinition? = null,
+    val serviceToAuthorize: OAuthServiceDefinition? = null,
     val selectedAccountForAuth: String = "shqsid@gmail.com",
     val isAuthorizingService: Boolean = false,
     // Active dialogs
@@ -69,10 +99,18 @@ data class CleanSmsUiState(
     val deleteTargetMessages: List<SmsMessageItem> = emptyList(),
     val isDeletingFromQuarantine: Boolean = false,
     val showAddCustomRuleSheet: Boolean = false,
+    val editingRule: CustomFilterRule? = null,
     val showRestoreCloudDialog: Boolean = false,
     val activeRestorePayload: CloudBackupPayload? = null,
     val detailMessage: SmsMessageItem? = null,
-    val snackbarMessage: String? = null
+    val snackbarMessage: String? = null,
+    // GitHub release update check & airtight multi-version upgrade state
+    val gitHubRepoSlug: String = AppUpgradeManager.DEFAULT_GITHUB_REPO,
+    val includePrereleases: Boolean = true,
+    val updateCheckStatus: UpdateCheckStatus = UpdateCheckStatus.IDLE,
+    val updateCheckResult: UpdateCheckResult? = null,
+    val upgradeMigrationReport: UpgradeMigrationReport? = null,
+    val showUpdatesDialog: Boolean = false
 )
 
 class CleanSmsViewModel @JvmOverloads constructor(
@@ -80,7 +118,9 @@ class CleanSmsViewModel @JvmOverloads constructor(
     private val repository: SmsRepository = SmsRepository(application),
     private val cloudManager: CloudBackupManager = CloudBackupManager(application),
     private val db: AppDatabase = AppDatabase.getInstance(application),
-    val deviceOAuthManager: com.example.cloud.DeviceOAuthManager = com.example.cloud.DeviceOAuthManager(application, db.cleanSmsDao())
+    val deviceOAuthManager: DeviceOAuthManager = DeviceOAuthManager(application, db.cleanSmsDao()),
+    private val appUpgradeManager: AppUpgradeManager = AppUpgradeManager(application),
+    private val updateRepository: GitHubUpdateRepository = GitHubUpdateRepository()
 ) : AndroidViewModel(application) {
 
     private val dao = db.cleanSmsDao()
@@ -88,19 +128,48 @@ class CleanSmsViewModel @JvmOverloads constructor(
     private val _uiState = MutableStateFlow(CleanSmsUiState())
     val uiState: StateFlow<CleanSmsUiState> = _uiState.asStateFlow()
 
+    private var refreshJob: Job? = null
+    private var reclassifyJob: Job? = null
+    private var updateCheckJob: Job? = null
+    private var cachedDeviceContacts: List<ContactInfo> = emptyList()
+
     init {
+        initializeUpgradeState()
         checkTelephonyState()
         observeLocalDatabase()
         loadInitialData()
+        checkForGitHubUpdates(userInitiated = false)
     }
 
-    fun checkTelephonyState() {
+    private fun initializeUpgradeState() {
+        val migrationReport = appUpgradeManager.ensureStateMigrated()
+        val repoSlug = appUpgradeManager.getGitHubRepoSlug()
+        val includePre = appUpgradeManager.getIncludePrereleases()
+        _uiState.update {
+            it.copy(
+                gitHubRepoSlug = repoSlug,
+                includePrereleases = includePre,
+                upgradeMigrationReport = migrationReport
+            )
+        }
+    }
+
+    fun checkTelephonyState(): Boolean {
         val context = getApplication<Application>()
-        val isDefault = TelephonyManagerHelper.isDefaultSmsApp(context)
-        _uiState.update { it.copy(isDefaultSmsApp = isDefault) }
+        val status = TelephonyManagerHelper.inspectDefaultSmsRoleStatus(context)
+        _uiState.update {
+            it.copy(
+                isDefaultSmsApp = status.isDefaultSmsApp,
+                previousDefaultSmsPackage = status.previousAppInfo.packageName,
+                previousDefaultSmsAppName = status.previousAppInfo.appName
+            )
+        }
+        return status.isDefaultSmsApp
     }
 
     fun setSmsPermissions(readGranted: Boolean, writeGranted: Boolean) {
+        val prevRead = _uiState.value.hasReadSmsPermission
+        val prevWrite = _uiState.value.hasWriteSmsPermission
         _uiState.update {
             it.copy(
                 hasReadSmsPermission = readGranted,
@@ -110,8 +179,16 @@ class CleanSmsViewModel @JvmOverloads constructor(
                 showPermissionRationaleDialog = false
             )
         }
-        if (readGranted) {
+        if (readGranted && (!prevRead || !prevWrite)) {
             refreshMessages()
+        }
+    }
+
+    fun setContactsPermission(granted: Boolean) {
+        val prevGranted = _uiState.value.hasContactsPermission
+        _uiState.update { it.copy(hasContactsPermission = granted) }
+        if (granted && (!prevGranted || cachedDeviceContacts.isEmpty())) {
+            refreshContactsAndRelink()
         }
     }
 
@@ -136,6 +213,7 @@ class CleanSmsViewModel @JvmOverloads constructor(
     }
 
     fun setDemoMode(isDemo: Boolean) {
+        if (_uiState.value.isDemoMode == isDemo) return
         _uiState.update { it.copy(isDemoMode = isDemo) }
         refreshMessages()
     }
@@ -143,8 +221,19 @@ class CleanSmsViewModel @JvmOverloads constructor(
     private fun observeLocalDatabase() {
         viewModelScope.launch {
             dao.getAllQuarantinedFlow().collect { entities ->
-                val items = entities.map { it.toSmsMessageItem() }
+                val items = withContext(Dispatchers.Default) {
+                    entities.map { it.toSmsMessageItem() }
+                }
                 _uiState.update { it.copy(quarantinedMessages = items) }
+            }
+        }
+
+        viewModelScope.launch {
+            dao.getAllDeletedTestSnapshotsFlow().collect { entities ->
+                val items = withContext(Dispatchers.Default) {
+                    entities.map { it.toSmsMessageItem() }
+                }
+                _uiState.update { it.copy(deletedTestMessages = items) }
             }
         }
 
@@ -155,6 +244,7 @@ class CleanSmsViewModel @JvmOverloads constructor(
                         id = it.id,
                         name = it.name,
                         senderFilter = it.senderFilter,
+                        contactFilter = it.contactFilter,
                         keywords = it.keywords,
                         matchAnyKeyword = it.matchAnyKeyword,
                         olderThanDays = it.olderThanDays,
@@ -165,8 +255,7 @@ class CleanSmsViewModel @JvmOverloads constructor(
                     )
                 }
                 _uiState.update { it.copy(customRules = rules) }
-                // Re-classify messages with updated rules
-                reclassifyCurrentMessages()
+                reclassifyCurrentMessagesAsync()
             }
         }
 
@@ -190,8 +279,8 @@ class CleanSmsViewModel @JvmOverloads constructor(
         viewModelScope.launch {
             deviceOAuthManager.authorizedCredentialsFlow.collect { creds ->
                 _uiState.update { state ->
-                    val hasDrive = creds.any { it.serviceId == com.example.cloud.DeviceOAuthManager.SERVICE_GOOGLE_DRIVE }
-                    val hasDropbox = creds.any { it.serviceId == com.example.cloud.DeviceOAuthManager.SERVICE_DROPBOX }
+                    val hasDrive = creds.any { it.serviceId == DeviceOAuthManager.SERVICE_GOOGLE_DRIVE }
+                    val hasDropbox = creds.any { it.serviceId == DeviceOAuthManager.SERVICE_DROPBOX }
                     state.copy(
                         authorizedOAuthCredentials = creds,
                         isGoogleDriveConnected = hasDrive,
@@ -204,7 +293,9 @@ class CleanSmsViewModel @JvmOverloads constructor(
 
     private fun loadInitialData() {
         viewModelScope.launch {
-            val accounts = deviceOAuthManager.getDetectedDeviceAccounts()
+            val accounts = withContext(Dispatchers.IO) {
+                deviceOAuthManager.getDetectedDeviceAccounts()
+            }
             _uiState.update {
                 it.copy(
                     availableDeviceAccounts = accounts,
@@ -213,12 +304,13 @@ class CleanSmsViewModel @JvmOverloads constructor(
             }
 
             // Seed a default sample custom rule if empty
-            val existingRules = dao.getAllRules()
+            val existingRules = withContext(Dispatchers.IO) { dao.getAllRules() }
             if (existingRules.isEmpty()) {
                 val sampleRule = CustomRuleEntity(
                     id = "rule_default_1",
                     name = "Bank Alerts Older Than 30 Days",
                     senderFilter = "Bank",
+                    contactFilter = "",
                     keywords = "withdrawn, debit, balance",
                     matchAnyKeyword = true,
                     olderThanDays = 30,
@@ -227,108 +319,304 @@ class CleanSmsViewModel @JvmOverloads constructor(
                     isEnabled = true,
                     createdAt = System.currentTimeMillis()
                 )
-                dao.insertRule(sampleRule)
+                withContext(Dispatchers.IO) { dao.insertRule(sampleRule) }
             }
             refreshMessages()
         }
     }
 
-    fun refreshMessages() {
+    private fun refreshContactsAndRelink() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isScanning = true) }
-            withContext(Dispatchers.IO) {
-                val raw = if (_uiState.value.isDemoMode) {
-                    repository.getDemoSmsList()
+            val (contacts, relinkedMessages, merged) = withContext(Dispatchers.IO) {
+                val loadedContacts = if (_uiState.value.hasContactsPermission) {
+                    repository.readDeviceContacts()
                 } else {
-                    repository.readDeviceSms()
+                    emptyList()
                 }
-
-                // Filter out quarantined messages from raw inbox
-                val quarantinedIds = _uiState.value.quarantinedMessages.map { it.id }.toSet()
-                val activeRaw = raw.filterNot { quarantinedIds.contains(it.id) }
-
-                val classified = SmsClassifier.classifyMessages(
-                    rawMessages = activeRaw,
-                    activeRules = _uiState.value.customRules,
-                    filterDuplicates = _uiState.value.filterDuplicates,
-                    filterOtps = _uiState.value.filterOtps,
-                    onlyExpiredOtps = _uiState.value.onlyExpiredOtps,
-                    filterPromotions = _uiState.value.filterPromotions,
-                    filterSpam = _uiState.value.filterSpam,
-                    duplicateKeepStrategy = _uiState.value.duplicateKeepStrategy
+                cachedDeviceContacts = loadedContacts
+                val lookup = repository.buildContactLookupIndex(loadedContacts)
+                val currentRaw = _uiState.value.allMessages
+                val relinked = repository.linkMessagesToContacts(currentRaw, lookup)
+                val mergedContacts = repository.getMergedContactsForMessages(relinked, loadedContacts)
+                Triple(loadedContacts, relinked, mergedContacts)
+            }
+            _uiState.update {
+                it.copy(
+                    allMessages = relinkedMessages,
+                    availableContacts = merged
                 )
-                val clusters = SmsClassifier.extractDuplicateThreadClusters(classified)
-
-                _uiState.update {
-                    it.copy(
-                        allMessages = activeRaw,
-                        classifiedMessages = classified,
-                        duplicateThreadClusters = clusters,
-                        isScanning = false
-                    )
-                }
+            }
+            if (contacts.isNotEmpty()) {
+                reclassifyCurrentMessagesAsync()
             }
         }
     }
 
-    private fun reclassifyCurrentMessages() {
-        val raw = _uiState.value.allMessages
-        val classified = SmsClassifier.classifyMessages(
-            rawMessages = raw,
-            activeRules = _uiState.value.customRules,
-            filterDuplicates = _uiState.value.filterDuplicates,
-            filterOtps = _uiState.value.filterOtps,
-            onlyExpiredOtps = _uiState.value.onlyExpiredOtps,
-            filterPromotions = _uiState.value.filterPromotions,
-            filterSpam = _uiState.value.filterSpam,
-            duplicateKeepStrategy = _uiState.value.duplicateKeepStrategy
-        )
-        val clusters = SmsClassifier.extractDuplicateThreadClusters(classified)
+    fun refreshMessages() {
+        refreshJob?.cancel()
+        refreshJob = viewModelScope.launch {
+            _uiState.update { it.copy(isScanning = true) }
+            val result = withContext(Dispatchers.IO) {
+                val stateSnapshot = _uiState.value
+                val deviceContacts = if (stateSnapshot.hasContactsPermission) {
+                    repository.readDeviceContacts().also { cachedDeviceContacts = it }
+                } else {
+                    cachedDeviceContacts
+                }
+                val contactIndex = repository.buildContactLookupIndex(deviceContacts)
+
+                val raw = if (stateSnapshot.isDemoMode) {
+                    val demo = repository.getDemoSmsList()
+                    if (contactIndex.isNotEmpty()) repository.linkMessagesToContacts(demo, contactIndex) else demo
+                } else {
+                    repository.readDeviceSms(contactIndex)
+                }
+
+                // Filter out quarantined messages from raw inbox
+                val quarantinedIds = stateSnapshot.quarantinedMessages.mapTo(HashSet()) { it.id }
+                val activeRaw = if (quarantinedIds.isEmpty()) raw else raw.filterNot { it.id in quarantinedIds }
+                val mergedContacts = repository.getMergedContactsForMessages(activeRaw, deviceContacts)
+
+                val contactTokens = buildSelectedContactTokens(stateSnapshot.selectedContacts)
+                val classified = SmsClassifier.classifyMessages(
+                    rawMessages = activeRaw,
+                    activeRules = stateSnapshot.customRules,
+                    filterDuplicates = stateSnapshot.filterDuplicates,
+                    filterOtps = stateSnapshot.filterOtps,
+                    onlyExpiredOtps = stateSnapshot.onlyExpiredOtps,
+                    filterPromotions = stateSnapshot.filterPromotions,
+                    filterSpam = stateSnapshot.filterSpam,
+                    duplicateKeepStrategy = stateSnapshot.duplicateKeepStrategy,
+                    filterByContactEnabled = stateSnapshot.filterByContactEnabled,
+                    selectedContactTokens = contactTokens,
+                    contactFilterMode = stateSnapshot.contactFilterMode
+                )
+                val summary = SmsClassifier.computeSummary(classified)
+                val clusters = SmsClassifier.extractDuplicateThreadClusters(classified)
+
+                RefreshResult(activeRaw, classified, summary, clusters, mergedContacts)
+            }
+
+            _uiState.update {
+                it.copy(
+                    allMessages = result.activeRaw,
+                    classifiedMessages = result.classified,
+                    summary = result.summary,
+                    duplicateThreadClusters = result.clusters,
+                    availableContacts = result.mergedContacts,
+                    isScanning = false
+                )
+            }
+        }
+    }
+
+    private fun reclassifyCurrentMessagesAsync(debounceMs: Long = 0L) {
+        reclassifyJob?.cancel()
+        reclassifyJob = viewModelScope.launch {
+            if (debounceMs > 0L) delay(debounceMs)
+            val snapshot = _uiState.value
+            val result = withContext(Dispatchers.Default) {
+                val contactTokens = buildSelectedContactTokens(snapshot.selectedContacts)
+                val classified = SmsClassifier.classifyMessages(
+                    rawMessages = snapshot.allMessages,
+                    activeRules = snapshot.customRules,
+                    filterDuplicates = snapshot.filterDuplicates,
+                    filterOtps = snapshot.filterOtps,
+                    onlyExpiredOtps = snapshot.onlyExpiredOtps,
+                    filterPromotions = snapshot.filterPromotions,
+                    filterSpam = snapshot.filterSpam,
+                    duplicateKeepStrategy = snapshot.duplicateKeepStrategy,
+                    filterByContactEnabled = snapshot.filterByContactEnabled,
+                    selectedContactTokens = contactTokens,
+                    contactFilterMode = snapshot.contactFilterMode
+                )
+                val summary = SmsClassifier.computeSummary(classified)
+                val clusters = SmsClassifier.extractDuplicateThreadClusters(classified)
+                Triple(classified, summary, clusters)
+            }
+            _uiState.update {
+                it.copy(
+                    classifiedMessages = result.first,
+                    summary = result.second,
+                    duplicateThreadClusters = result.third
+                )
+            }
+        }
+    }
+
+    private fun buildSelectedContactTokens(contacts: List<ContactInfo>): Set<String> {
+        if (contacts.isEmpty()) return emptySet()
+        val tokens = HashSet<String>(contacts.size * 3)
+        for (c in contacts) {
+            tokens.add(c.id.trim().lowercase())
+            tokens.add(c.displayName.trim().lowercase())
+            for (phone in c.phoneNumbers) {
+                tokens.addAll(PhoneNormalizer.extractMatchKeys(phone))
+            }
+        }
+        return tokens
+    }
+
+    // Per-Contact Filter Controls (Main Detection Rules)
+    fun toggleContactFilter(enabled: Boolean) {
+        _uiState.update { it.copy(filterByContactEnabled = enabled) }
+        reclassifyCurrentMessagesAsync()
+    }
+
+    fun setContactFilterMode(mode: ContactFilterMode) {
+        _uiState.update { it.copy(contactFilterMode = mode) }
+        reclassifyCurrentMessagesAsync()
+    }
+
+    fun toggleSelectedContact(contact: ContactInfo) {
+        _uiState.update { state ->
+            val exists = state.selectedContacts.any { it.id == contact.id }
+            val updated = if (exists) {
+                state.selectedContacts.filterNot { it.id == contact.id }
+            } else {
+                state.selectedContacts + contact
+            }
+            state.copy(
+                selectedContacts = updated,
+                filterByContactEnabled = if (updated.isNotEmpty()) true else state.filterByContactEnabled
+            )
+        }
+        reclassifyCurrentMessagesAsync()
+    }
+
+    fun setSelectedContacts(contacts: List<ContactInfo>) {
         _uiState.update {
             it.copy(
-                classifiedMessages = classified,
-                duplicateThreadClusters = clusters
+                selectedContacts = contacts,
+                filterByContactEnabled = contacts.isNotEmpty()
+            )
+        }
+        reclassifyCurrentMessagesAsync()
+    }
+
+    fun clearSelectedContacts() {
+        _uiState.update { it.copy(selectedContacts = emptyList()) }
+        reclassifyCurrentMessagesAsync()
+    }
+
+    fun openMainContactPicker() {
+        _uiState.update { it.copy(showMainContactPickerDialog = true) }
+    }
+
+    fun closeMainContactPicker() {
+        _uiState.update { it.copy(showMainContactPickerDialog = false) }
+    }
+
+    // Testing Feature: Deleted Messages Recovery Toggle
+    fun toggleTestingRestoreDeleted(enabled: Boolean) {
+        _uiState.update {
+            it.copy(
+                testingRestoreDeletedEnabled = enabled,
+                snackbarMessage = if (enabled) {
+                    "Testing Delete Recovery ON: Deleted messages can be restored from Vault"
+                } else {
+                    "Testing Delete Recovery OFF: Deletions are strictly permanent"
+                }
             )
         }
     }
 
-    fun setDuplicateKeepStrategy(strategy: com.example.model.DuplicateKeepStrategy) {
+    fun toggleDeletedTestSelection(id: String) {
+        _uiState.update { state ->
+            val updated = state.deletedTestMessages.map {
+                if (it.id == id) it.copy(isSelected = !it.isSelected) else it
+            }
+            state.copy(deletedTestMessages = updated)
+        }
+    }
+
+    fun selectAllDeletedTest(select: Boolean) {
+        _uiState.update { state ->
+            val updated = state.deletedTestMessages.map { it.copy(isSelected = select) }
+            state.copy(deletedTestMessages = updated)
+        }
+    }
+
+    fun restoreSelectedDeletedTestMessages() {
+        viewModelScope.launch {
+            val selected = _uiState.value.deletedTestMessages.filter { it.isSelected }
+            if (selected.isEmpty()) {
+                _uiState.update { it.copy(snackbarMessage = "Select deleted test messages to restore") }
+                return@launch
+            }
+
+            val ids = selected.map { it.id }
+            withContext(Dispatchers.IO) {
+                if (!_uiState.value.isDemoMode && _uiState.value.isDefaultSmsApp) {
+                    repository.restoreMessagesToDeviceSms(selected)
+                }
+                dao.deleteTestSnapshotsByIds(ids)
+            }
+
+            val restoredItems = selected.map {
+                it.copy(
+                    isQuarantined = false,
+                    isSelected = false,
+                    matchReason = if (it.matchReason.isBlank()) "Restored (Testing Recovery)" else it.matchReason
+                )
+            }
+            val newAll = (_uiState.value.allMessages + restoredItems).distinctBy { it.id }
+            _uiState.update {
+                it.copy(
+                    allMessages = newAll,
+                    snackbarMessage = "Restored ${selected.size} permanently deleted message(s) back to Inbox for testing"
+                )
+            }
+            reclassifyCurrentMessagesAsync()
+        }
+    }
+
+    fun clearDeletedTestSnapshots() {
+        viewModelScope.launch {
+            val count = _uiState.value.deletedTestMessages.size
+            withContext(Dispatchers.IO) {
+                dao.clearAllDeletedTestSnapshots()
+            }
+            _uiState.update { it.copy(snackbarMessage = "Cleared $count deleted test snapshot(s)") }
+        }
+    }
+
+    fun setDuplicateKeepStrategy(strategy: DuplicateKeepStrategy) {
         _uiState.update { it.copy(duplicateKeepStrategy = strategy) }
-        reclassifyCurrentMessages()
+        reclassifyCurrentMessagesAsync()
     }
 
     fun toggleGroupByThreads(enabled: Boolean) {
         _uiState.update { it.copy(groupByThreadsInDuplicates = enabled) }
     }
 
-    fun fixDuplicateThread(cluster: com.example.model.DuplicateThreadCluster) {
+    fun fixDuplicateThread(cluster: DuplicateThreadCluster) {
         viewModelScope.launch {
-            val duplicateIds = cluster.duplicateCopies.map { it.id }.toSet()
-            val duplicates = _uiState.value.classifiedMessages.filter { duplicateIds.contains(it.id) }
+            val duplicateIds = cluster.duplicateCopies.mapTo(HashSet()) { it.id }
+            val duplicates = _uiState.value.classifiedMessages.filter { it.id in duplicateIds }
 
             if (duplicates.isEmpty()) return@launch
 
-            if (_uiState.value.autoBackupBeforeClean) {
-                cloudManager.createCloudBackup(
-                    messages = duplicates,
-                    rules = _uiState.value.customRules,
-                    provider = _uiState.value.selectedCloudProvider
-                )
+            withContext(Dispatchers.IO) {
+                if (_uiState.value.autoBackupBeforeClean) {
+                    cloudManager.createCloudBackup(
+                        messages = duplicates,
+                        rules = _uiState.value.customRules,
+                        provider = _uiState.value.selectedCloudProvider
+                    )
+                }
+                val entities = duplicates.map { QuarantineEntity.fromSmsMessageItem(it) }
+                dao.insertQuarantined(entities)
             }
 
-            // Move duplicate copies to quarantine
-            val entities = duplicates.map { QuarantineEntity.fromSmsMessageItem(it) }
-            dao.insertQuarantined(entities)
-
-            // Remove only the duplicate copies, preserving master message in existing thread!
-            val remaining = _uiState.value.allMessages.filterNot { duplicateIds.contains(it.id) }
+            val remaining = _uiState.value.allMessages.filterNot { it.id in duplicateIds }
             _uiState.update {
                 it.copy(
                     allMessages = remaining,
                     snackbarMessage = "Fixed Thread #${cluster.threadId}: ${duplicates.size} duplicate(s) moved to Vault. Master copy kept."
                 )
             }
-            reclassifyCurrentMessages()
+            reclassifyCurrentMessagesAsync()
         }
     }
 
@@ -340,53 +628,55 @@ class CleanSmsViewModel @JvmOverloads constructor(
                 return@launch
             }
 
-            val duplicateIds = allDuplicates.map { it.id }.toSet()
-            if (_uiState.value.autoBackupBeforeClean) {
-                cloudManager.createCloudBackup(
-                    messages = allDuplicates,
-                    rules = _uiState.value.customRules,
-                    provider = _uiState.value.selectedCloudProvider
-                )
+            val duplicateIds = allDuplicates.mapTo(HashSet()) { it.id }
+            val clusterCount = _uiState.value.duplicateThreadClusters.size
+            withContext(Dispatchers.IO) {
+                if (_uiState.value.autoBackupBeforeClean) {
+                    cloudManager.createCloudBackup(
+                        messages = allDuplicates,
+                        rules = _uiState.value.customRules,
+                        provider = _uiState.value.selectedCloudProvider
+                    )
+                }
+                val entities = allDuplicates.map { QuarantineEntity.fromSmsMessageItem(it) }
+                dao.insertQuarantined(entities)
             }
 
-            val entities = allDuplicates.map { QuarantineEntity.fromSmsMessageItem(it) }
-            dao.insertQuarantined(entities)
-
-            val remaining = _uiState.value.allMessages.filterNot { duplicateIds.contains(it.id) }
+            val remaining = _uiState.value.allMessages.filterNot { it.id in duplicateIds }
             _uiState.update {
                 it.copy(
                     allMessages = remaining,
-                    snackbarMessage = "Cleaned ${allDuplicates.size} duplicate message(s) across ${_uiState.value.duplicateThreadClusters.size} threads. Master copies preserved."
+                    snackbarMessage = "Cleaned ${allDuplicates.size} duplicate message(s) across $clusterCount threads. Master copies preserved."
                 )
             }
-            reclassifyCurrentMessages()
+            reclassifyCurrentMessagesAsync()
         }
     }
 
     // Filter toggles
     fun toggleDuplicateFilter(enabled: Boolean) {
         _uiState.update { it.copy(filterDuplicates = enabled) }
-        reclassifyCurrentMessages()
+        reclassifyCurrentMessagesAsync()
     }
 
     fun toggleOtpFilter(enabled: Boolean) {
         _uiState.update { it.copy(filterOtps = enabled) }
-        reclassifyCurrentMessages()
+        reclassifyCurrentMessagesAsync()
     }
 
     fun toggleOnlyExpiredOtps(onlyExpired: Boolean) {
         _uiState.update { it.copy(onlyExpiredOtps = onlyExpired) }
-        reclassifyCurrentMessages()
+        reclassifyCurrentMessagesAsync()
     }
 
     fun togglePromotionFilter(enabled: Boolean) {
         _uiState.update { it.copy(filterPromotions = enabled) }
-        reclassifyCurrentMessages()
+        reclassifyCurrentMessagesAsync()
     }
 
     fun toggleSpamFilter(enabled: Boolean) {
         _uiState.update { it.copy(filterSpam = enabled) }
-        reclassifyCurrentMessages()
+        reclassifyCurrentMessagesAsync()
     }
 
     fun setCategoryTab(category: SmsCategory) {
@@ -423,7 +713,7 @@ class CleanSmsViewModel @JvmOverloads constructor(
     fun selectFilteredMessages(messageIds: Set<String>, select: Boolean) {
         _uiState.update { state ->
             val updated = state.classifiedMessages.map { msg ->
-                if (messageIds.contains(msg.id)) msg.copy(isSelected = select) else msg
+                if (msg.id in messageIds) msg.copy(isSelected = select) else msg
             }
             state.copy(classifiedMessages = updated)
         }
@@ -438,31 +728,30 @@ class CleanSmsViewModel @JvmOverloads constructor(
                 return@launch
             }
 
-            // Auto-backup to Cloud if enabled and authorized
-            if (_uiState.value.autoBackupBeforeClean) {
-                val selectedProvider = _uiState.value.selectedCloudProvider
-                val serviceId = if (selectedProvider.contains("Dropbox", ignoreCase = true)) {
-                    com.example.cloud.DeviceOAuthManager.SERVICE_DROPBOX
-                } else {
-                    com.example.cloud.DeviceOAuthManager.SERVICE_GOOGLE_DRIVE
+            withContext(Dispatchers.IO) {
+                if (_uiState.value.autoBackupBeforeClean) {
+                    val selectedProvider = _uiState.value.selectedCloudProvider
+                    val serviceId = if (selectedProvider.contains("Dropbox", ignoreCase = true)) {
+                        DeviceOAuthManager.SERVICE_DROPBOX
+                    } else {
+                        DeviceOAuthManager.SERVICE_GOOGLE_DRIVE
+                    }
+                    val isAuth = _uiState.value.authorizedOAuthCredentials.any { it.serviceId == serviceId }
+                    if (isAuth) {
+                        cloudManager.createCloudBackup(
+                            messages = selected,
+                            rules = _uiState.value.customRules,
+                            provider = _uiState.value.selectedCloudProvider
+                        )
+                    }
                 }
-                val isAuth = _uiState.value.authorizedOAuthCredentials.any { it.serviceId == serviceId }
-                if (isAuth) {
-                    cloudManager.createCloudBackup(
-                        messages = selected,
-                        rules = _uiState.value.customRules,
-                        provider = _uiState.value.selectedCloudProvider
-                    )
-                }
+
+                val entities = selected.map { QuarantineEntity.fromSmsMessageItem(it) }
+                dao.insertQuarantined(entities)
             }
 
-            // Save to Room Quarantine table
-            val entities = selected.map { QuarantineEntity.fromSmsMessageItem(it) }
-            dao.insertQuarantined(entities)
-
-            // Remove from active inbox
-            val selectedIds = selected.map { it.id }.toSet()
-            val remaining = _uiState.value.allMessages.filterNot { selectedIds.contains(it.id) }
+            val selectedIds = selected.mapTo(HashSet()) { it.id }
+            val remaining = _uiState.value.allMessages.filterNot { it.id in selectedIds }
 
             _uiState.update {
                 it.copy(
@@ -470,11 +759,11 @@ class CleanSmsViewModel @JvmOverloads constructor(
                     snackbarMessage = "${selected.size} messages safely moved to Quarantine Vault"
                 )
             }
-            reclassifyCurrentMessages()
+            reclassifyCurrentMessagesAsync()
         }
     }
 
-    // Permanent Deletion
+    // Permanent Deletion (with optional Testing Recovery Snapshot)
     fun promptPermanentDelete(fromQuarantine: Boolean = false) {
         val targets = if (fromQuarantine) {
             _uiState.value.quarantinedMessages.filter { it.isSelected }
@@ -499,28 +788,43 @@ class CleanSmsViewModel @JvmOverloads constructor(
     fun confirmPermanentDelete() {
         val targets = _uiState.value.deleteTargetMessages
         val isFromQuarantine = _uiState.value.isDeletingFromQuarantine
+        val saveTestingSnapshot = _uiState.value.testingRestoreDeletedEnabled
         val ids = targets.map { it.id }
 
         viewModelScope.launch {
-            if (isFromQuarantine) {
-                dao.deleteQuarantinedByIds(ids)
-            } else {
-                // If real device mode and is default SMS app, delete from Telephony provider
-                if (!_uiState.value.isDemoMode && _uiState.value.isDefaultSmsApp) {
-                    repository.deleteFromDeviceSms(ids)
+            withContext(Dispatchers.IO) {
+                // If Testing Delete Recovery toggle is ON, save a local recovery snapshot first
+                if (saveTestingSnapshot && targets.isNotEmpty()) {
+                    val snapshots = targets.map { DeletedTestSnapshotEntity.fromSmsMessageItem(it) }
+                    dao.insertDeletedTestSnapshots(snapshots)
                 }
-                // Remove from local memory list
-                val idSet = ids.toSet()
-                val remaining = _uiState.value.allMessages.filterNot { idSet.contains(it.id) }
-                _uiState.update { it.copy(allMessages = remaining) }
-                reclassifyCurrentMessages()
+
+                if (isFromQuarantine) {
+                    dao.deleteQuarantinedByIds(ids)
+                    // Also delete from device Telephony if in real device mode & default SMS app
+                    if (!_uiState.value.isDemoMode && _uiState.value.isDefaultSmsApp) {
+                        repository.deleteFromDeviceSms(ids)
+                    }
+                } else {
+                    if (!_uiState.value.isDemoMode && _uiState.value.isDefaultSmsApp) {
+                        repository.deleteFromDeviceSms(ids)
+                    }
+                }
             }
 
+            if (!isFromQuarantine) {
+                val idSet = ids.toHashSet()
+                val remaining = _uiState.value.allMessages.filterNot { it.id in idSet }
+                _uiState.update { it.copy(allMessages = remaining) }
+                reclassifyCurrentMessagesAsync()
+            }
+
+            val suffix = if (saveTestingSnapshot) " (Recoverable via Vault Testing Toggle)" else ""
             _uiState.update {
                 it.copy(
                     showPermanentDeleteDialog = false,
                     deleteTargetMessages = emptyList(),
-                    snackbarMessage = "Permanently deleted ${targets.size} messages"
+                    snackbarMessage = "Permanently deleted ${targets.size} message(s)$suffix"
                 )
             }
         }
@@ -540,9 +844,10 @@ class CleanSmsViewModel @JvmOverloads constructor(
             }
 
             val ids = selected.map { it.id }
-            dao.deleteQuarantinedByIds(ids)
+            withContext(Dispatchers.IO) {
+                dao.deleteQuarantinedByIds(ids)
+            }
 
-            // Add back to active inbox
             val restoredItems = selected.map { it.copy(isQuarantined = false, isSelected = false) }
             val newAll = (_uiState.value.allMessages + restoredItems).distinctBy { it.id }
 
@@ -552,7 +857,7 @@ class CleanSmsViewModel @JvmOverloads constructor(
                     snackbarMessage = "Restored ${selected.size} messages back to Inbox"
                 )
             }
-            reclassifyCurrentMessages()
+            reclassifyCurrentMessagesAsync()
         }
     }
 
@@ -574,27 +879,41 @@ class CleanSmsViewModel @JvmOverloads constructor(
 
     fun emptyQuarantine() {
         viewModelScope.launch {
-            val count = _uiState.value.quarantinedMessages.size
-            dao.clearAllQuarantine()
+            val currentQuarantined = _uiState.value.quarantinedMessages
+            val count = currentQuarantined.size
+            withContext(Dispatchers.IO) {
+                if (_uiState.value.testingRestoreDeletedEnabled && currentQuarantined.isNotEmpty()) {
+                    dao.insertDeletedTestSnapshots(
+                        currentQuarantined.map { DeletedTestSnapshotEntity.fromSmsMessageItem(it) }
+                    )
+                }
+                dao.clearAllQuarantine()
+            }
             _uiState.update { it.copy(snackbarMessage = "Emptied Quarantine Vault ($count messages removed)") }
         }
     }
 
-    // Custom Rules CRUD
+    // Custom Rules CRUD (Create + Edit + Toggle + Delete)
     fun openAddRuleSheet() {
-        _uiState.update { it.copy(showAddCustomRuleSheet = true) }
+        _uiState.update { it.copy(showAddCustomRuleSheet = true, editingRule = null) }
+    }
+
+    fun openEditRuleSheet(rule: CustomFilterRule) {
+        _uiState.update { it.copy(showAddCustomRuleSheet = true, editingRule = rule) }
     }
 
     fun closeAddRuleSheet() {
-        _uiState.update { it.copy(showAddCustomRuleSheet = false) }
+        _uiState.update { it.copy(showAddCustomRuleSheet = false, editingRule = null) }
     }
 
     fun saveCustomRule(rule: CustomFilterRule) {
+        val isEditing = _uiState.value.editingRule != null
         viewModelScope.launch {
             val entity = CustomRuleEntity(
                 id = rule.id,
                 name = rule.name,
                 senderFilter = rule.senderFilter,
+                contactFilter = rule.contactFilter,
                 keywords = rule.keywords,
                 matchAnyKeyword = rule.matchAnyKeyword,
                 olderThanDays = rule.olderThanDays,
@@ -603,11 +922,14 @@ class CleanSmsViewModel @JvmOverloads constructor(
                 isEnabled = rule.isEnabled,
                 createdAt = rule.createdAt
             )
-            dao.insertRule(entity)
+            withContext(Dispatchers.IO) {
+                dao.insertRule(entity)
+            }
             _uiState.update {
                 it.copy(
                     showAddCustomRuleSheet = false,
-                    snackbarMessage = "Saved custom rule '${rule.name}'"
+                    editingRule = null,
+                    snackbarMessage = if (isEditing) "Updated rule '${rule.name}'" else "Saved custom rule '${rule.name}'"
                 )
             }
         }
@@ -620,6 +942,7 @@ class CleanSmsViewModel @JvmOverloads constructor(
                 id = updated.id,
                 name = updated.name,
                 senderFilter = updated.senderFilter,
+                contactFilter = updated.contactFilter,
                 keywords = updated.keywords,
                 matchAnyKeyword = updated.matchAnyKeyword,
                 olderThanDays = updated.olderThanDays,
@@ -628,13 +951,17 @@ class CleanSmsViewModel @JvmOverloads constructor(
                 isEnabled = updated.isEnabled,
                 createdAt = updated.createdAt
             )
-            dao.updateRule(entity)
+            withContext(Dispatchers.IO) {
+                dao.updateRule(entity)
+            }
         }
     }
 
     fun deleteCustomRule(ruleId: String) {
         viewModelScope.launch {
-            dao.deleteRuleById(ruleId)
+            withContext(Dispatchers.IO) {
+                dao.deleteRuleById(ruleId)
+            }
             _uiState.update { it.copy(snackbarMessage = "Deleted custom rule") }
         }
     }
@@ -648,7 +975,7 @@ class CleanSmsViewModel @JvmOverloads constructor(
         _uiState.update { it.copy(autoBackupBeforeClean = enabled) }
     }
 
-    fun requestServiceAuthorization(serviceDef: com.example.model.OAuthServiceDefinition) {
+    fun requestServiceAuthorization(serviceDef: OAuthServiceDefinition) {
         val account = _uiState.value.availableDeviceAccounts.firstOrNull() ?: serviceDef.defaultAccount
         _uiState.update {
             it.copy(
@@ -702,7 +1029,7 @@ class CleanSmsViewModel @JvmOverloads constructor(
     fun revokeServiceAuthorization(serviceId: String) {
         viewModelScope.launch {
             deviceOAuthManager.revokeAuthorization(serviceId)
-            val serviceName = if (serviceId == com.example.cloud.DeviceOAuthManager.SERVICE_DROPBOX) "Dropbox" else "Google Drive"
+            val serviceName = if (serviceId == DeviceOAuthManager.SERVICE_DROPBOX) "Dropbox" else "Google Drive"
             _uiState.update {
                 it.copy(snackbarMessage = "Revoked $serviceName authorization. Secret purged from device.")
             }
@@ -721,9 +1048,9 @@ class CleanSmsViewModel @JvmOverloads constructor(
     fun performManualCloudBackup() {
         val selectedProvider = _uiState.value.selectedCloudProvider
         val serviceId = if (selectedProvider.contains("Dropbox", ignoreCase = true)) {
-            com.example.cloud.DeviceOAuthManager.SERVICE_DROPBOX
+            DeviceOAuthManager.SERVICE_DROPBOX
         } else {
-            com.example.cloud.DeviceOAuthManager.SERVICE_GOOGLE_DRIVE
+            DeviceOAuthManager.SERVICE_GOOGLE_DRIVE
         }
 
         val isAuthorized = _uiState.value.authorizedOAuthCredentials.any { it.serviceId == serviceId }
@@ -785,12 +1112,11 @@ class CleanSmsViewModel @JvmOverloads constructor(
     fun confirmRestoreFromCloud() {
         val payload = _uiState.value.activeRestorePayload ?: return
         viewModelScope.launch {
-            // Restore messages into inbox
             val restoredItems = payload.messages.map { dto ->
                 val proto = try {
-                    com.example.model.MessageProtocol.valueOf(dto.protocol)
+                    MessageProtocol.valueOf(dto.protocol)
                 } catch (_: Exception) {
-                    if (dto.isRcsChat) com.example.model.MessageProtocol.RCS_CHAT else com.example.model.MessageProtocol.SMS
+                    if (dto.isRcsChat) MessageProtocol.RCS_CHAT else MessageProtocol.SMS
                 }
                 SmsMessageItem(
                     id = dto.id,
@@ -799,28 +1125,30 @@ class CleanSmsViewModel @JvmOverloads constructor(
                     date = dto.date,
                     protocol = proto,
                     threadId = dto.threadId,
-                    isRcsChat = dto.isRcsChat || proto == com.example.model.MessageProtocol.RCS_CHAT,
+                    isRcsChat = dto.isRcsChat || proto == MessageProtocol.RCS_CHAT,
                     matchReason = "Restored from cloud (${payload.provider})",
                     otpCode = dto.otpCode,
                     isSelected = false
                 )
             }
 
-            // Restore rules
-            for (rule in payload.rules) {
-                val entity = CustomRuleEntity(
-                    id = rule.id,
-                    name = rule.name,
-                    senderFilter = rule.senderFilter,
-                    keywords = rule.keywords,
-                    matchAnyKeyword = rule.matchAnyKeyword,
-                    olderThanDays = rule.olderThanDays,
-                    startDateEpoch = rule.startDateEpoch,
-                    endDateEpoch = rule.endDateEpoch,
-                    isEnabled = rule.isEnabled,
-                    createdAt = rule.createdAt
-                )
-                dao.insertRule(entity)
+            withContext(Dispatchers.IO) {
+                for (rule in payload.rules) {
+                    val entity = CustomRuleEntity(
+                        id = rule.id,
+                        name = rule.name,
+                        senderFilter = rule.senderFilter,
+                        contactFilter = rule.contactFilter,
+                        keywords = rule.keywords,
+                        matchAnyKeyword = rule.matchAnyKeyword,
+                        olderThanDays = rule.olderThanDays,
+                        startDateEpoch = rule.startDateEpoch,
+                        endDateEpoch = rule.endDateEpoch,
+                        isEnabled = rule.isEnabled,
+                        createdAt = rule.createdAt
+                    )
+                    dao.insertRule(entity)
+                }
             }
 
             val newAll = (_uiState.value.allMessages + restoredItems).distinctBy { it.id }
@@ -832,7 +1160,7 @@ class CleanSmsViewModel @JvmOverloads constructor(
                     snackbarMessage = "Successfully restored ${restoredItems.size} messages and ${payload.rules.size} rules!"
                 )
             }
-            reclassifyCurrentMessages()
+            reclassifyCurrentMessagesAsync()
         }
     }
 
@@ -851,6 +1179,115 @@ class CleanSmsViewModel @JvmOverloads constructor(
     fun clearSnackbar() {
         _uiState.update { it.copy(snackbarMessage = null) }
     }
+
+    // GitHub Release Update Checker & Multi-Version Upgrade Path Actions
+    fun openUpdatesDialog() {
+        _uiState.update { it.copy(showUpdatesDialog = true) }
+        if (_uiState.value.updateCheckStatus == UpdateCheckStatus.IDLE ||
+            _uiState.value.updateCheckStatus == UpdateCheckStatus.ERROR
+        ) {
+            checkForGitHubUpdates(userInitiated = false)
+        }
+    }
+
+    fun dismissUpdatesDialog() {
+        _uiState.update { it.copy(showUpdatesDialog = false) }
+    }
+
+    fun updateGitHubRepoSlug(rawSlug: String) {
+        val normalized = com.example.update.SemanticVersion.normalizeRepoSlug(rawSlug)
+        if (normalized == null) {
+            _uiState.update {
+                it.copy(snackbarMessage = "Enter a valid GitHub repository as owner/repo")
+            }
+            return
+        }
+        val slug = "${normalized.first}/${normalized.second}"
+        appUpgradeManager.setGitHubRepoSlug(slug)
+        _uiState.update { it.copy(gitHubRepoSlug = slug) }
+        checkForGitHubUpdates(userInitiated = true)
+    }
+
+    fun toggleIncludePrereleases(include: Boolean) {
+        appUpgradeManager.setIncludePrereleases(include)
+        _uiState.update { it.copy(includePrereleases = include) }
+        checkForGitHubUpdates(userInitiated = true)
+    }
+
+    fun checkForGitHubUpdates(userInitiated: Boolean = true) {
+        updateCheckJob?.cancel()
+        val repoSlug = _uiState.value.gitHubRepoSlug
+        val includePre = _uiState.value.includePrereleases
+
+        _uiState.update {
+            it.copy(updateCheckStatus = UpdateCheckStatus.CHECKING)
+        }
+
+        updateCheckJob = viewModelScope.launch {
+            val result = updateRepository.checkForUpdates(
+                repoSlug = repoSlug,
+                installedVersionName = com.example.BuildConfig.VERSION_NAME,
+                installedVersionCode = com.example.BuildConfig.VERSION_CODE,
+                includePrereleases = includePre
+            )
+
+            result.onSuccess { checkResult ->
+                val newStatus = if (checkResult.isUpdateAvailable) {
+                    UpdateCheckStatus.UPDATE_AVAILABLE
+                } else {
+                    UpdateCheckStatus.UP_TO_DATE
+                }
+                val snackbar = if (userInitiated) {
+                    if (checkResult.isUpdateAvailable) {
+                        val targetTag = checkResult.latestRelease?.tagName ?: "latest"
+                        val steps = checkResult.versionsBehindCount
+                        if (steps > 1) {
+                            "Update available: $targetTag ($steps versions ahead of v${checkResult.installedVersionName})"
+                        } else {
+                            "Update available: $targetTag"
+                        }
+                    } else {
+                        "CleanSMS v${checkResult.installedVersionName} is already the latest release."
+                    }
+                } else {
+                    null
+                }
+                _uiState.update {
+                    it.copy(
+                        updateCheckStatus = newStatus,
+                        updateCheckResult = checkResult,
+                        snackbarMessage = snackbar ?: it.snackbarMessage
+                    )
+                }
+            }.onFailure { err ->
+                val msg = err.message ?: "Unable to reach GitHub Releases."
+                _uiState.update {
+                    it.copy(
+                        updateCheckStatus = if (userInitiated) UpdateCheckStatus.ERROR else UpdateCheckStatus.IDLE,
+                        updateCheckResult = UpdateCheckResult(
+                            repoSlug = repoSlug,
+                            installedVersionName = com.example.BuildConfig.VERSION_NAME,
+                            installedVersionCode = com.example.BuildConfig.VERSION_CODE,
+                            includePrereleases = includePre,
+                            latestRelease = it.updateCheckResult?.latestRelease,
+                            upgradeChain = emptyList(),
+                            isUpdateAvailable = false,
+                            errorMessage = msg
+                        ),
+                        snackbarMessage = if (userInitiated) msg else it.snackbarMessage
+                    )
+                }
+            }
+        }
+    }
+
+    private data class RefreshResult(
+        val activeRaw: List<SmsMessageItem>,
+        val classified: List<SmsMessageItem>,
+        val summary: ClassificationSummary,
+        val clusters: List<DuplicateThreadCluster>,
+        val mergedContacts: List<ContactInfo>
+    )
 
     companion object {
         fun Factory(application: Application): ViewModelProvider.Factory =

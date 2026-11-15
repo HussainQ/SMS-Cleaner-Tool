@@ -18,6 +18,8 @@ data class QuarantineEntity(
     val protocolString: String = "SMS",
     val threadId: Long = 0L,
     val isRcsChat: Boolean = false,
+    val contactName: String? = null,
+    val type: Int = 1,
     val quarantinedAt: Long = System.currentTimeMillis()
 ) {
     fun toSmsMessageItem(): SmsMessageItem {
@@ -36,10 +38,12 @@ data class QuarantineEntity(
             address = address,
             body = body,
             date = date,
+            type = type,
             category = cat,
             protocol = proto,
             threadId = threadId,
             isRcsChat = isRcsChat || proto == MessageProtocol.RCS_CHAT,
+            contactName = contactName,
             matchReason = matchReason,
             otpCode = otpCode,
             isQuarantined = true,
@@ -60,7 +64,75 @@ data class QuarantineEntity(
                 protocolString = item.protocol.name,
                 threadId = item.threadId,
                 isRcsChat = item.isRcsChat || item.protocol == MessageProtocol.RCS_CHAT,
+                contactName = item.contactName,
+                type = item.type,
                 quarantinedAt = System.currentTimeMillis()
+            )
+        }
+    }
+}
+
+@Entity(tableName = "deleted_test_snapshots")
+data class DeletedTestSnapshotEntity(
+    @PrimaryKey val id: String,
+    val address: String,
+    val body: String,
+    val date: Long,
+    val type: Int = 1,
+    val categoryString: String,
+    val matchReason: String,
+    val otpCode: String?,
+    val protocolString: String = "SMS",
+    val threadId: Long = 0L,
+    val isRcsChat: Boolean = false,
+    val contactName: String? = null,
+    val deletedAt: Long = System.currentTimeMillis()
+) {
+    fun toSmsMessageItem(): SmsMessageItem {
+        val cat = try {
+            SmsCategory.valueOf(categoryString)
+        } catch (_: Exception) {
+            SmsCategory.NORMAL
+        }
+        val proto = try {
+            MessageProtocol.valueOf(protocolString)
+        } catch (_: Exception) {
+            if (isRcsChat) MessageProtocol.RCS_CHAT else MessageProtocol.SMS
+        }
+        return SmsMessageItem(
+            id = id,
+            address = address,
+            body = body,
+            date = date,
+            type = type,
+            category = cat,
+            protocol = proto,
+            threadId = threadId,
+            isRcsChat = isRcsChat || proto == MessageProtocol.RCS_CHAT,
+            contactName = contactName,
+            matchReason = matchReason,
+            otpCode = otpCode,
+            isQuarantined = false,
+            isSelected = false
+        )
+    }
+
+    companion object {
+        fun fromSmsMessageItem(item: SmsMessageItem): DeletedTestSnapshotEntity {
+            return DeletedTestSnapshotEntity(
+                id = item.id,
+                address = item.address,
+                body = item.body,
+                date = item.date,
+                type = item.type,
+                categoryString = item.category.name,
+                matchReason = item.matchReason,
+                otpCode = item.otpCode,
+                protocolString = item.protocol.name,
+                threadId = item.threadId,
+                isRcsChat = item.isRcsChat || item.protocol == MessageProtocol.RCS_CHAT,
+                contactName = item.contactName,
+                deletedAt = System.currentTimeMillis()
             )
         }
     }
@@ -71,6 +143,7 @@ data class CustomRuleEntity(
     @PrimaryKey val id: String,
     val name: String,
     val senderFilter: String,
+    val contactFilter: String = "",
     val keywords: String,
     val matchAnyKeyword: Boolean,
     val olderThanDays: Int?,

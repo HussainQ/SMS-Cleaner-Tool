@@ -1,3 +1,7 @@
+import org.gradle.api.tasks.testing.Test
+import org.gradle.jvm.toolchain.JavaLanguageVersion
+import org.gradle.jvm.toolchain.JavaToolchainService
+
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.kotlin.compose)
@@ -13,8 +17,8 @@ android {
     applicationId = "com.aistudio.cleansms.jrvxpq"
     minSdk = 24
     targetSdk = 36
-    versionCode = 10500
-    versionName = "1.5.0-pre.1"
+    versionCode = 10600
+    versionName = "1.6.0-pre.1"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -109,9 +113,11 @@ dependencies {
   implementation(libs.okhttp)
   // implementation(libs.play.services.location)
   implementation(libs.retrofit)
+  testImplementation(platform(libs.androidx.compose.bom))
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)
+  testImplementation(libs.androidx.runner)
   testImplementation(libs.junit)
   testImplementation(libs.kotlinx.coroutines.test)
   testImplementation(libs.robolectric)
@@ -124,4 +130,17 @@ dependencies {
   debugImplementation(libs.androidx.compose.ui.tooling)
   "ksp"(libs.androidx.room.compiler)
   "ksp"(libs.moshi.kotlin.codegen)
+}
+
+// Robolectric 4.16.1 with @Config(sdk = [36]) requires Java 21+ (DefaultSdkProvider.java:170).
+// If Gradle is invoked with an older JDK (e.g. JDK 17), auto-select a Java 21 test launcher.
+val javaToolchains = extensions.getByType(JavaToolchainService::class.java)
+tasks.withType<Test>().configureEach {
+  if (!JavaVersion.current().isCompatibleWith(JavaVersion.VERSION_21)) {
+    javaLauncher.set(
+      javaToolchains.launcherFor {
+        languageVersion.set(JavaLanguageVersion.of(21))
+      }
+    )
+  }
 }

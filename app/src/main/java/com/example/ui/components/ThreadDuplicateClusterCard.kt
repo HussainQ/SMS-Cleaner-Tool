@@ -7,6 +7,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -18,9 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.DuplicateThreadCluster
 import com.example.ui.theme.*
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import com.example.ui.util.DateFormatterUtil
 
 @Composable
 fun ThreadDuplicateClusterCard(
@@ -29,7 +28,9 @@ fun ThreadDuplicateClusterCard(
     onClickDetail: (com.example.model.SmsMessageItem) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val masterDateStr = SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault()).format(Date(cluster.masterMessage.date))
+    val masterDateStr = remember(cluster.masterMessage.date) {
+        DateFormatterUtil.formatShort(cluster.masterMessage.date)
+    }
 
     Card(
         modifier = modifier
@@ -142,7 +143,7 @@ fun ThreadDuplicateClusterCard(
                     color = TextSecondary
                 )
                 cluster.duplicateCopies.forEachIndexed { idx, dup ->
-                    val dupDate = SimpleDateFormat("MMM dd, HH:mm:ss", Locale.getDefault()).format(Date(dup.date))
+                    val dupDate = remember(dup.date) { DateFormatterUtil.formatWithSeconds(dup.date) }
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
                         shape = RoundedCornerShape(8.dp),

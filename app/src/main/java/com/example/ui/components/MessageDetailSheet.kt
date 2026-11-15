@@ -22,9 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.SmsMessageItem
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import com.example.ui.util.DateFormatterUtil
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,7 +31,7 @@ fun MessageDetailSheet(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val dateStr = SimpleDateFormat("EEEE, MMMM dd, yyyy 'at' hh:mm:ss a", Locale.getDefault()).format(Date(message.date))
+    val dateStr = DateFormatterUtil.formatFull(message.date)
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -73,7 +71,7 @@ fun MessageDetailSheet(
                     modifier = Modifier.padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text(text = "Sender: ${message.address}", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text(text = "Sender: ${message.displaySender}", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                     Text(text = "Received: $dateStr", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(
                         text = "Protocol: ${message.protocol.displayName}" + if (message.threadId > 0) " (Thread #${message.threadId})" else "",

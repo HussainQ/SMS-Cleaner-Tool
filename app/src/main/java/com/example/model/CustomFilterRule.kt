@@ -4,6 +4,7 @@ data class CustomFilterRule(
     val id: String = java.util.UUID.randomUUID().toString(),
     val name: String,
     val senderFilter: String = "", // Matches sender address/name (case-insensitive contains)
+    val contactFilter: String = "", // Comma-separated linked contact names or normalized phone numbers
     val keywords: String = "", // Comma-separated keywords
     val matchAnyKeyword: Boolean = true, // If true, matches if any keyword found; if false, must have all
     val olderThanDays: Int? = null, // e.g. 30, 90 days

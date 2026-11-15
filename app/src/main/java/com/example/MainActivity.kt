@@ -28,14 +28,18 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.model.PhoneNormalizer
 import com.example.model.SmsCategory
 import com.example.telephony.TelephonyManagerHelper
 import com.example.ui.CleanSmsUiState
 import com.example.ui.CleanSmsViewModel
 import com.example.ui.components.AddCustomRuleSheet
+import com.example.ui.components.AppUpdatesDialog
+import com.example.ui.components.ContactPickerDialog
 import com.example.ui.components.MessageDetailSheet
 import com.example.ui.components.PermanentDeleteConfirmDialog
 import com.example.ui.components.RestoreCloudDialog
+import com.example.update.UpdateCheckStatus
 import com.example.ui.screens.PreviewCleanScreen
 import com.example.ui.screens.RulesAndCloudScreen
 import com.example.ui.screens.ScannerScreen
@@ -56,14 +60,23 @@ const val PERMISSION_WRITE_SMS = "android.permission.WRITE_SMS"
 
 class MainActivity : ComponentActivity() {
 
+    private var windowFocusSyncTrigger by mutableIntStateOf(0)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
         setContent {
             CleanSMSTheme {
-                CleanSmsApp()
+                CleanSmsApp(windowFocusSyncTrigger = windowFocusSyncTrigger)
             }
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            windowFocusSyncTrigger++
         }
     }
 }
@@ -71,6 +84,7 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CleanSmsApp(
+    windowFocusSyncTrigger: Int = 0,
     viewModel: CleanSmsViewModel = viewModel(
         factory = CleanSmsViewModel.Factory(
             LocalContext.current.applicationContext as Application
@@ -83,7 +97,7 @@ fun CleanSmsApp(
 
     var currentTab by remember { mutableStateOf(NavigationTab.SCANNER) }
 
-    // Check initial permissions and re-check on lifecycle resume
+    // Check initial permissions (SMS + Contacts) and re-check on lifecycle resume
     val checkPermissions = remember(context) {
         {
             val readGranted = ContextCompat.checkSelfPermission(
@@ -94,7 +108,12 @@ fun CleanSmsApp(
                 context,
                 PERMISSION_WRITE_SMS
             ) == PackageManager.PERMISSION_GRANTED
+            val contactsGranted = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.READ_CONTACTS
+            ) == PackageManager.PERMISSION_GRANTED
             viewModel.setSmsPermissions(readGranted = readGranted, writeGranted = writeGranted)
+            viewModel.setContactsPermission(contactsGranted)
             viewModel.checkTelephonyState()
         }
     }
@@ -103,10 +122,16 @@ fun CleanSmsApp(
         checkPermissions()
     }
 
+    LaunchedEffect(windowFocusSyncTrigger, currentTab) {
+        viewModel.checkTelephonyState()
+    }
+
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_START ||
+                event == androidx.lifecycle.Lifecycle.Event.ON_RESUME
+            ) {
                 checkPermissions()
             }
         }
@@ -133,11 +158,22 @@ fun CleanSmsApp(
             val shouldShowRead = androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.READ_SMS)
             val shouldShowWrite = androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(activity, PERMISSION_WRITE_SMS)
             if (!shouldShowRead && !shouldShowWrite && !readGranted) {
-                // Permanently denied (or don't ask again checked)
                 viewModel.openPermissionPermanentlyDeniedDialog()
             } else {
                 viewModel.openPermissionRationaleDialog()
             }
+        }
+    }
+
+    // Permission launcher for READ_CONTACTS (links device contacts to Google Messages threads)
+    val contactsPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        viewModel.setContactsPermission(granted)
+        if (granted) {
+            viewModel.showSnackbar("Contacts permission granted. Linking messages to device contacts.")
+        } else {
+            viewModel.showSnackbar("Contacts access denied. Using message thread senders only.")
         }
     }
 
@@ -158,11 +194,68 @@ fun CleanSmsApp(
         }
     }
 
-    // Activity launcher for default SMS app role request
+    val requestContactsPermissionAction: () -> Unit = remember(contactsPermissionLauncher) {
+        {
+            val contactsGranted = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.READ_CONTACTS
+            ) == PackageManager.PERMISSION_GRANTED
+            if (contactsGranted) {
+                viewModel.setContactsPermission(true)
+            } else {
+                contactsPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
+            }
+        }
+    }
+
+    // Activity launcher for default SMS app role request / hand-back
     val defaultSmsLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) {
-        viewModel.checkTelephonyState()
+        val prevState = viewModel.uiState.value
+        val wasDefault = prevState.isDefaultSmsApp
+        val isNowDefault = viewModel.checkTelephonyState()
+        val updatedState = viewModel.uiState.value
+        if (!wasDefault && isNowDefault) {
+            viewModel.showSnackbar("Default SMS App active (taken from ${updatedState.previousDefaultSmsAppName}). Ready to delete permanently.")
+        } else if (wasDefault && !isNowDefault) {
+            viewModel.showSnackbar("Default SMS Role handed back to ${updatedState.previousDefaultSmsAppName}.")
+        }
+    }
+
+    val requestDefaultSmsRoleAction: () -> Unit = remember(defaultSmsLauncher, context, viewModel) {
+        {
+            if (TelephonyManagerHelper.isDefaultSmsApp(context)) {
+                viewModel.checkTelephonyState()
+                viewModel.showSnackbar("CleanSMS is already set as the Default SMS App.")
+            } else {
+                try {
+                    val intent = TelephonyManagerHelper.createRequestDefaultSmsIntent(context)
+                    defaultSmsLauncher.launch(intent)
+                } catch (_: Exception) {
+                    try {
+                        defaultSmsLauncher.launch(TelephonyManagerHelper.createManageDefaultAppsIntent())
+                    } catch (_: Exception) {
+                        viewModel.showSnackbar("Open System Settings > Default Apps > SMS app to select CleanSMS.")
+                    }
+                }
+            }
+        }
+    }
+
+    val handBackDefaultSmsRoleAction: () -> Unit = remember(defaultSmsLauncher, context, viewModel) {
+        {
+            val state = viewModel.uiState.value
+            try {
+                val restoreIntent = TelephonyManagerHelper.createRestoreDefaultSmsIntent(
+                    context = context,
+                    targetPackage = state.previousDefaultSmsPackage
+                )
+                defaultSmsLauncher.launch(restoreIntent)
+            } catch (_: Exception) {
+                viewModel.showSnackbar("Open System Settings > Default Apps > SMS app to select ${state.previousDefaultSmsAppName}.")
+            }
+        }
     }
 
     // Handle snackbar messages
@@ -173,13 +266,9 @@ fun CleanSmsApp(
         }
     }
 
-    // Badge counts
-    val cleanableCount = remember(uiState.classifiedMessages) {
-        uiState.classifiedMessages.count { it.isCleanCandidate }
-    }
-    val quarantinedCount = remember(uiState.quarantinedMessages) {
-        uiState.quarantinedMessages.size
-    }
+    // Badge counts (single-pass summary)
+    val cleanableCount = uiState.summary.allCleanableCount
+    val quarantinedCount = uiState.quarantinedMessages.size
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val isWideScreen = maxWidth >= 720.dp
@@ -298,6 +387,29 @@ fun CleanSmsApp(
                                     )
                                 }
                             },
+                            actions = {
+                                val hasUpdate = uiState.updateCheckResult?.isUpdateAvailable == true
+                                IconButton(
+                                    onClick = { viewModel.openUpdatesDialog() },
+                                    modifier = Modifier.testTag("top_bar_updates_btn_wide")
+                                ) {
+                                    BadgedBox(
+                                        badge = {
+                                            if (hasUpdate) {
+                                                Badge(containerColor = TealAccent, contentColor = Navy900) {
+                                                    Text("!", fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = if (hasUpdate) Icons.Default.SystemUpdate else Icons.Default.Update,
+                                            contentDescription = "Check for GitHub Updates",
+                                            tint = if (hasUpdate) TealAccent else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                }
+                            },
                             colors = TopAppBarDefaults.topAppBarColors(
                                 containerColor = MaterialTheme.colorScheme.surface
                             )
@@ -314,10 +426,9 @@ fun CleanSmsApp(
                             uiState = uiState,
                             viewModel = viewModel,
                             onRequestSmsPermission = requestSmsPermissionsAction,
-                            onRequestDefaultSmsRole = {
-                                val intent = TelephonyManagerHelper.createRequestDefaultSmsIntent(context)
-                                defaultSmsLauncher.launch(intent)
-                            },
+                            onRequestContactsPermission = requestContactsPermissionAction,
+                            onRequestDefaultSmsRole = requestDefaultSmsRoleAction,
+                            onHandBackDefaultSmsRole = handBackDefaultSmsRoleAction,
                             onNavigateToPreview = { currentTab = NavigationTab.PREVIEW }
                         )
                     }
@@ -387,6 +498,27 @@ fun CleanSmsApp(
                             }
                         },
                         actions = {
+                            val hasUpdate = uiState.updateCheckResult?.isUpdateAvailable == true
+                            IconButton(
+                                onClick = { viewModel.openUpdatesDialog() },
+                                modifier = Modifier.testTag("top_bar_updates_btn")
+                            ) {
+                                BadgedBox(
+                                    badge = {
+                                        if (hasUpdate) {
+                                            Badge(containerColor = TealAccent, contentColor = Navy900) {
+                                                Text("!", fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                ) {
+                                    Icon(
+                                        imageVector = if (hasUpdate) Icons.Default.SystemUpdate else Icons.Default.Update,
+                                        contentDescription = "Check for GitHub Updates",
+                                        tint = if (hasUpdate) TealAccent else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
                             if (currentTab != NavigationTab.SCANNER) {
                                 IconButton(onClick = { viewModel.refreshMessages() }) {
                                     Icon(Icons.Default.Refresh, contentDescription = "Rescan")
@@ -447,10 +579,9 @@ fun CleanSmsApp(
                         uiState = uiState,
                         viewModel = viewModel,
                         onRequestSmsPermission = requestSmsPermissionsAction,
-                        onRequestDefaultSmsRole = {
-                            val intent = TelephonyManagerHelper.createRequestDefaultSmsIntent(context)
-                            defaultSmsLauncher.launch(intent)
-                        },
+                        onRequestContactsPermission = requestContactsPermissionAction,
+                        onRequestDefaultSmsRole = requestDefaultSmsRoleAction,
+                        onHandBackDefaultSmsRole = handBackDefaultSmsRoleAction,
                         onNavigateToPreview = { currentTab = NavigationTab.PREVIEW }
                     )
                 }
@@ -463,17 +594,49 @@ fun CleanSmsApp(
         PermanentDeleteConfirmDialog(
             messages = uiState.deleteTargetMessages,
             isFromQuarantine = uiState.isDeletingFromQuarantine,
+            testingRestoreEnabled = uiState.testingRestoreDeletedEnabled,
+            isDemoMode = uiState.isDemoMode,
+            isDefaultSmsApp = uiState.isDefaultSmsApp,
+            onRequestDefaultSmsRole = requestDefaultSmsRoleAction,
             onConfirm = { viewModel.confirmPermanentDelete() },
             onDismiss = { viewModel.dismissPermanentDeleteDialog() }
         )
     }
 
-    // Add Custom Rule BottomSheet
+    // Create / Edit Custom Rule BottomSheet
     if (uiState.showAddCustomRuleSheet) {
         AddCustomRuleSheet(
+            existingRule = uiState.editingRule,
             existingMessages = uiState.allMessages,
+            availableContacts = uiState.availableContacts,
+            hasContactsPermission = uiState.hasContactsPermission,
+            onRequestContactsPermission = requestContactsPermissionAction,
             onSaveRule = { rule -> viewModel.saveCustomRule(rule) },
             onDismiss = { viewModel.closeAddRuleSheet() }
+        )
+    }
+
+    // Main Detection Per-Contact Filter Picker Dialog
+    if (uiState.showMainContactPickerDialog) {
+        val initiallySelectedTokens = remember(uiState.selectedContacts) {
+            buildSet {
+                uiState.selectedContacts.forEach { contact ->
+                    add(contact.id.trim().lowercase())
+                    add(contact.displayName.trim().lowercase())
+                    contact.phoneNumbers.forEach { addAll(PhoneNormalizer.extractMatchKeys(it)) }
+                }
+            }
+        }
+        ContactPickerDialog(
+            availableContacts = uiState.availableContacts,
+            initiallySelectedTokens = initiallySelectedTokens,
+            hasContactsPermission = uiState.hasContactsPermission,
+            onRequestContactsPermission = requestContactsPermissionAction,
+            onConfirmSelection = { chosen ->
+                viewModel.setSelectedContacts(chosen)
+                viewModel.closeMainContactPicker()
+            },
+            onDismiss = { viewModel.closeMainContactPicker() }
         )
     }
 
@@ -534,6 +697,18 @@ fun CleanSmsApp(
             }
         )
     }
+
+    // GitHub Release Update Checker & Multi-Version Upgrade Dialog
+    if (uiState.showUpdatesDialog) {
+        AppUpdatesDialog(
+            uiState = uiState,
+            onCheckNow = { viewModel.checkForGitHubUpdates(userInitiated = true) },
+            onTogglePrereleases = { viewModel.toggleIncludePrereleases(it) },
+            onSaveRepoSlug = { viewModel.updateGitHubRepoSlug(it) },
+            onNotify = { viewModel.showSnackbar(it) },
+            onDismiss = { viewModel.dismissUpdatesDialog() }
+        )
+    }
 }
 
 @Composable
@@ -542,7 +717,9 @@ private fun AppScreenContent(
     uiState: CleanSmsUiState,
     viewModel: CleanSmsViewModel,
     onRequestSmsPermission: () -> Unit,
+    onRequestContactsPermission: () -> Unit,
     onRequestDefaultSmsRole: () -> Unit,
+    onHandBackDefaultSmsRole: () -> Unit,
     onNavigateToPreview: () -> Unit
 ) {
     when (currentTab) {
@@ -551,7 +728,9 @@ private fun AppScreenContent(
                 uiState = uiState,
                 viewModel = viewModel,
                 onRequestSmsPermission = onRequestSmsPermission,
+                onRequestContactsPermission = onRequestContactsPermission,
                 onRequestDefaultSmsRole = onRequestDefaultSmsRole,
+                onHandBackDefaultSmsRole = onHandBackDefaultSmsRole,
                 onNavigateToPreview = onNavigateToPreview
             )
         }
@@ -559,7 +738,9 @@ private fun AppScreenContent(
         NavigationTab.PREVIEW -> {
             PreviewCleanScreen(
                 uiState = uiState,
-                viewModel = viewModel
+                viewModel = viewModel,
+                onRequestDefaultSmsRole = onRequestDefaultSmsRole,
+                onHandBackDefaultSmsRole = onHandBackDefaultSmsRole
             )
         }
 

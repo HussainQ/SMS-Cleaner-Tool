@@ -65,6 +65,7 @@ class CloudBackupManager(private val context: Context) {
                 rObj.put("id", r.id)
                 rObj.put("name", r.name)
                 rObj.put("senderFilter", r.senderFilter)
+                rObj.put("contactFilter", r.contactFilter)
                 rObj.put("keywords", r.keywords)
                 rObj.put("matchAnyKeyword", r.matchAnyKeyword)
                 if (r.olderThanDays != null) rObj.put("olderThanDays", r.olderThanDays)
@@ -151,6 +152,7 @@ class CloudBackupManager(private val context: Context) {
                             id = r.optString("id", UUID.randomUUID().toString()),
                             name = r.optString("name", "Restored Rule"),
                             senderFilter = r.optString("senderFilter", ""),
+                            contactFilter = r.optString("contactFilter", ""),
                             keywords = r.optString("keywords", ""),
                             matchAnyKeyword = r.optBoolean("matchAnyKeyword", true),
                             olderThanDays = if (r.has("olderThanDays")) r.optInt("olderThanDays") else null,

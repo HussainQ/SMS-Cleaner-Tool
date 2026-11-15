@@ -1,8 +1,12 @@
 package com.example.ui.screens
 
-import android.content.Intent
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -10,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -19,13 +24,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.model.SmsCategory
-import com.example.telephony.TelephonyManagerHelper
+import com.example.model.ContactFilterMode
 import com.example.ui.CleanSmsUiState
 import com.example.ui.CleanSmsViewModel
 import com.example.ui.theme.*
@@ -35,19 +39,20 @@ fun ScannerScreen(
     uiState: CleanSmsUiState,
     viewModel: CleanSmsViewModel,
     onRequestSmsPermission: () -> Unit,
+    onRequestContactsPermission: () -> Unit,
     onRequestDefaultSmsRole: () -> Unit,
+    onHandBackDefaultSmsRole: () -> Unit,
     onNavigateToPreview: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
     val scrollState = rememberScrollState()
 
-    val duplicateCount = uiState.classifiedMessages.count { it.category == SmsCategory.DUPLICATE && it.isDuplicateExtra }
-    val otpCount = uiState.classifiedMessages.count { it.category == SmsCategory.OTP }
-    val promoCount = uiState.classifiedMessages.count { it.category == SmsCategory.PROMOTION }
-    val spamCount = uiState.classifiedMessages.count { it.category == SmsCategory.SPAM }
-    val customCount = uiState.classifiedMessages.count { it.category == SmsCategory.CUSTOM_RULE }
-    val totalCleanable = duplicateCount + otpCount + promoCount + spamCount + customCount
+    val duplicateCount = uiState.summary.duplicateCount
+    val otpCount = uiState.summary.otpCount
+    val promoCount = uiState.summary.promoCount
+    val spamCount = uiState.summary.spamCount
+    val customCount = uiState.summary.customRuleCount
+    val totalCleanable = uiState.summary.allCleanableCount
 
     BoxWithConstraints(
         modifier = modifier
@@ -83,26 +88,30 @@ fun ScannerScreen(
                         otpCount = otpCount,
                         promoCount = promoCount,
                         spamCount = spamCount,
+                        isScanning = uiState.isScanning,
                         onRefresh = { viewModel.refreshMessages() },
                         onNavigateToPreview = onNavigateToPreview
                     )
                 }
 
-                // Right Column: Default SMS Status & Detection Rules
+                // Right Column: Default SMS Status, Permissions & Detection Rules
                 Column(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     TelephonyBanner(
                         isDefaultSmsApp = uiState.isDefaultSmsApp,
+                        previousAppName = uiState.previousDefaultSmsAppName,
                         onRequestDefaultSmsRole = onRequestDefaultSmsRole,
-                        context = context
+                        onHandBackDefaultSmsRole = onHandBackDefaultSmsRole
                     )
 
                     SmsPermissionsBanner(
                         hasReadPermission = uiState.hasReadSmsPermission,
                         hasWritePermission = uiState.hasWriteSmsPermission,
-                        onRequestSmsPermission = onRequestSmsPermission
+                        hasContactsPermission = uiState.hasContactsPermission,
+                        onRequestSmsPermission = onRequestSmsPermission,
+                        onRequestContactsPermission = onRequestContactsPermission
                     )
 
                     DetectionRulesCard(
@@ -134,20 +143,24 @@ fun ScannerScreen(
                     otpCount = otpCount,
                     promoCount = promoCount,
                     spamCount = spamCount,
+                    isScanning = uiState.isScanning,
                     onRefresh = { viewModel.refreshMessages() },
                     onNavigateToPreview = onNavigateToPreview
                 )
 
                 TelephonyBanner(
                     isDefaultSmsApp = uiState.isDefaultSmsApp,
+                    previousAppName = uiState.previousDefaultSmsAppName,
                     onRequestDefaultSmsRole = onRequestDefaultSmsRole,
-                    context = context
+                    onHandBackDefaultSmsRole = onHandBackDefaultSmsRole
                 )
 
                 SmsPermissionsBanner(
                     hasReadPermission = uiState.hasReadSmsPermission,
                     hasWritePermission = uiState.hasWriteSmsPermission,
-                    onRequestSmsPermission = onRequestSmsPermission
+                    hasContactsPermission = uiState.hasContactsPermission,
+                    onRequestSmsPermission = onRequestSmsPermission,
+                    onRequestContactsPermission = onRequestContactsPermission
                 )
 
                 DetectionRulesCard(
@@ -182,7 +195,8 @@ private fun DataSourceCard(
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.weight(1f)
             ) {
                 Box(
                     modifier = Modifier
@@ -205,7 +219,7 @@ private fun DataSourceCard(
                         fontSize = 14.sp
                     )
                     Text(
-                        text = if (uiState.isDemoMode) "30+ simulated messages & duplicates" else "${uiState.allMessages.size} real messages",
+                        text = if (uiState.isDemoMode) "30+ simulated messages & contacts" else "${uiState.allMessages.size} real messages",
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -244,6 +258,7 @@ private fun ClutterAnalysisCard(
     otpCount: Int,
     promoCount: Int,
     spamCount: Int,
+    isScanning: Boolean,
     onRefresh: () -> Unit,
     onNavigateToPreview: () -> Unit
 ) {
@@ -270,7 +285,7 @@ private fun ClutterAnalysisCard(
                 ) {
                     Column {
                         Text(
-                            text = "Inbox Analysis",
+                            text = if (isScanning) "Scanning Inbox..." else "Inbox Analysis",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = CyanAccent,
@@ -291,11 +306,19 @@ private fun ClutterAnalysisCard(
                             .background(CardBorder)
                             .testTag("refresh_scan_button")
                     ) {
-                        Icon(
-                            Icons.Default.Refresh,
-                            contentDescription = "Rescan",
-                            tint = CyanAccent
-                        )
+                        if (isScanning) {
+                            CircularProgressIndicator(
+                                color = CyanAccent,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        } else {
+                            Icon(
+                                Icons.Default.Refresh,
+                                contentDescription = "Rescan",
+                                tint = CyanAccent
+                            )
+                        }
                     }
                 }
 
@@ -370,81 +393,163 @@ private fun ClutterAnalysisCard(
 }
 
 @Composable
-private fun TelephonyBanner(
+fun TelephonyBanner(
     isDefaultSmsApp: Boolean,
+    previousAppName: String,
     onRequestDefaultSmsRole: () -> Unit,
-    context: android.content.Context
+    onHandBackDefaultSmsRole: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    Card(
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isDefaultSmsApp) TealAccent.copy(alpha = 0.12f) else AmberAccent.copy(alpha = 0.12f)
-        ),
-        border = CardDefaults.outlinedCardBorder().copy(
-            brush = androidx.compose.ui.graphics.SolidColor(
-                if (isDefaultSmsApp) TealAccent.copy(alpha = 0.4f) else AmberAccent.copy(alpha = 0.4f)
-            )
-        ),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+    AnimatedContent(
+        targetState = isDefaultSmsApp,
+        transitionSpec = { fadeIn() togetherWith fadeOut() },
+        label = "telephony_role_banner",
+        modifier = modifier
+    ) { activeDefault ->
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = if (activeDefault) TealAccent.copy(alpha = 0.14f) else AmberAccent.copy(alpha = 0.12f)
+            ),
+            border = BorderStroke(
+                1.dp,
+                if (activeDefault) TealAccent.copy(alpha = 0.45f) else AmberAccent.copy(alpha = 0.45f)
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag(if (activeDefault) "default_sms_active_banner" else "default_sms_needed_banner")
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Icon(
-                    imageVector = if (isDefaultSmsApp) Icons.Default.CheckCircle else Icons.Default.Info,
-                    contentDescription = null,
-                    tint = if (isDefaultSmsApp) TealAccent else AmberAccent,
-                    modifier = Modifier.size(24.dp)
-                )
-                Column {
-                    Text(
-                        text = if (isDefaultSmsApp) "Default SMS App Active" else "Default SMS Role Required for Deletion",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = if (isDefaultSmsApp)
-                            "CleanSMS can delete directly from Google Messages"
-                        else
-                            "Android requires temporary Default SMS role to permanently delete messages from Google Messages",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            if (!isDefaultSmsApp) {
-                Button(
-                    onClick = onRequestDefaultSmsRole,
-                    colors = ButtonDefaults.buttonColors(containerColor = AmberAccent),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("set_default_sms_button")
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text("Set as Default SMS App", color = Color.Black, fontWeight = FontWeight.Bold)
-                }
-            } else {
-                OutlinedButton(
-                    onClick = {
-                        val defaultPkg = "com.google.android.apps.messaging"
-                        val restoreIntent = TelephonyManagerHelper.createRestoreDefaultSmsIntent(defaultPkg)
-                        try {
-                            context.startActivity(restoreIntent)
-                        } catch (_: Exception) {
-                            onRequestDefaultSmsRole()
+                    Surface(
+                        color = if (activeDefault) TealAccent.copy(alpha = 0.22f) else AmberAccent.copy(alpha = 0.22f),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = if (activeDefault) Icons.Default.Verified else Icons.Default.Info,
+                                contentDescription = null,
+                                tint = if (activeDefault) TealAccent else AmberAccent,
+                                modifier = Modifier.size(20.dp)
+                            )
                         }
-                    },
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Switch Back to Google Messages")
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = if (activeDefault) {
+                                "Default SMS App Active"
+                            } else {
+                                "Default SMS Role Needed for Permanent Delete"
+                            },
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = if (activeDefault) {
+                                "Taken from $previousAppName. Ready to delete directly from inbox, or hand the role back when done."
+                            } else {
+                                "Android requires temporarily holding the Default SMS role (from $previousAppName) to delete directly from device inbox."
+                            },
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 16.sp
+                        )
+                    }
+                }
+
+                if (!activeDefault) {
+                    Button(
+                        onClick = onRequestDefaultSmsRole,
+                        colors = ButtonDefaults.buttonColors(containerColor = AmberAccent),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("set_default_sms_button")
+                    ) {
+                        Icon(Icons.Default.AdminPanelSettings, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Set as Default SMS App",
+                            color = Color.Black,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                } else {
+                    Surface(
+                        color = TealAccent.copy(alpha = 0.20f),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, TealAccent.copy(alpha = 0.55f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("default_sms_app_status_indicator")
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = "Default SMS App",
+                                    tint = TealAccent,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Text(
+                                    text = "Default SMS App",
+                                    color = TealAccent,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                            }
+                            Surface(
+                                color = TealAccent,
+                                shape = CircleShape
+                            ) {
+                                Text(
+                                    text = "ACTIVE",
+                                    color = Navy900,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    OutlinedButton(
+                        onClick = onHandBackDefaultSmsRole,
+                        border = BorderStroke(1.dp, TealAccent.copy(alpha = 0.6f)),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("hand_back_default_sms_button")
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = null, tint = TealAccent, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Hand Back Default SMS Role to $previousAppName",
+                            color = TealAccent,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
         }
@@ -536,6 +641,107 @@ private fun DetectionRulesCard(
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
 
+            // Per-Contact Filter Section in Main Detection Rules
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                FilterToggleRow(
+                    title = "Filter by Contact",
+                    subtitle = "Target or protect specific device contacts & Google Messages threads",
+                    icon = Icons.Default.Contacts,
+                    iconColor = CyanAccent,
+                    checked = uiState.filterByContactEnabled,
+                    onCheckedChange = { viewModel.toggleContactFilter(it) },
+                    switchTestTag = "main_contact_filter_switch"
+                )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 36.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    FilterChip(
+                        selected = uiState.contactFilterMode == ContactFilterMode.TARGET_CONTACTS,
+                        onClick = { viewModel.setContactFilterMode(ContactFilterMode.TARGET_CONTACTS) },
+                        label = { Text("Target Selected", fontSize = 11.sp) },
+                        leadingIcon = if (uiState.contactFilterMode == ContactFilterMode.TARGET_CONTACTS) {
+                            { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                        } else null,
+                        modifier = Modifier.testTag("contact_mode_target")
+                    )
+                    FilterChip(
+                        selected = uiState.contactFilterMode == ContactFilterMode.PROTECT_CONTACTS,
+                        onClick = { viewModel.setContactFilterMode(ContactFilterMode.PROTECT_CONTACTS) },
+                        label = { Text("Protect (VIP)", fontSize = 11.sp) },
+                        leadingIcon = if (uiState.contactFilterMode == ContactFilterMode.PROTECT_CONTACTS) {
+                            { Icon(Icons.Default.Shield, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                        } else null,
+                        modifier = Modifier.testTag("contact_mode_protect")
+                    )
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 36.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    FilledTonalButton(
+                        onClick = { viewModel.openMainContactPicker() },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .height(40.dp)
+                            .testTag("main_choose_contacts_button")
+                    ) {
+                        Icon(Icons.Default.PersonAdd, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (uiState.selectedContacts.isEmpty()) {
+                                "Choose Contacts"
+                            } else {
+                                "Contacts (${uiState.selectedContacts.size})"
+                            },
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    if (uiState.selectedContacts.isNotEmpty()) {
+                        TextButton(onClick = { viewModel.clearSelectedContacts() }) {
+                            Text("Clear", fontSize = 12.sp)
+                        }
+                    }
+                }
+
+                if (uiState.selectedContacts.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 36.dp)
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        uiState.selectedContacts.forEach { contact ->
+                            InputChip(
+                                selected = true,
+                                onClick = { viewModel.toggleSelectedContact(contact) },
+                                label = { Text(contact.displayName, fontSize = 11.sp) },
+                                trailingIcon = {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "Remove ${contact.displayName}",
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -558,6 +764,19 @@ private fun DetectionRulesCard(
                     color = TealAccent
                 )
             }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+
+            // Testing Feature: Recover Permanently Deleted Messages Toggle
+            FilterToggleRow(
+                title = "Testing: Recover Deleted Messages",
+                subtitle = "Keep local recovery snapshot of deleted messages (${uiState.deletedTestMessages.size} saved in Vault)",
+                icon = Icons.Default.RestoreFromTrash,
+                iconColor = AmberAccent,
+                checked = uiState.testingRestoreDeletedEnabled,
+                onCheckedChange = { viewModel.toggleTestingRestoreDeleted(it) },
+                switchTestTag = "testing_restore_deleted_switch"
+            )
         }
     }
 }
@@ -612,7 +831,8 @@ private fun FilterToggleRow(
     icon: ImageVector,
     iconColor: Color,
     checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
+    onCheckedChange: (Boolean) -> Unit,
+    switchTestTag: String? = null
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -630,7 +850,11 @@ private fun FilterToggleRow(
                 Text(text = subtitle, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            modifier = if (switchTestTag != null) Modifier.testTag(switchTestTag) else Modifier
+        )
     }
 }
 
@@ -638,18 +862,21 @@ private fun FilterToggleRow(
 fun SmsPermissionsBanner(
     hasReadPermission: Boolean,
     hasWritePermission: Boolean,
+    hasContactsPermission: Boolean = false,
     onRequestSmsPermission: () -> Unit,
+    onRequestContactsPermission: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val bothGranted = hasReadPermission && hasWritePermission
+    val allGranted = hasReadPermission && hasWritePermission && hasContactsPermission
+    val smsGranted = hasReadPermission && hasWritePermission
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (bothGranted) TealAccent.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+            containerColor = if (allGranted) TealAccent.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
         ),
         border = CardDefaults.outlinedCardBorder().copy(
             brush = androidx.compose.ui.graphics.SolidColor(
-                if (bothGranted) TealAccent.copy(alpha = 0.4f) else AmberAccent.copy(alpha = 0.4f)
+                if (allGranted) TealAccent.copy(alpha = 0.4f) else AmberAccent.copy(alpha = 0.4f)
             )
         ),
         modifier = modifier.fillMaxWidth()
@@ -663,15 +890,15 @@ fun SmsPermissionsBanner(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Surface(
-                    color = if (bothGranted) TealAccent.copy(alpha = 0.2f) else AmberAccent.copy(alpha = 0.2f),
+                    color = if (allGranted) TealAccent.copy(alpha = 0.2f) else AmberAccent.copy(alpha = 0.2f),
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.size(36.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
-                            imageVector = if (bothGranted) Icons.Default.VerifiedUser else Icons.Default.Security,
+                            imageVector = if (allGranted) Icons.Default.VerifiedUser else Icons.Default.Security,
                             contentDescription = null,
-                            tint = if (bothGranted) TealAccent else AmberAccent,
+                            tint = if (allGranted) TealAccent else AmberAccent,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -679,95 +906,117 @@ fun SmsPermissionsBanner(
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = if (bothGranted) "SMS Permissions Active" else "SMS Runtime Permissions",
+                        text = if (allGranted) "SMS & Contacts Permissions Active" else "Runtime Permissions",
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = if (bothGranted) "App can scan, categorize, and clean inbox" else "Access required to scan and clean real messages",
+                        text = if (allGranted) {
+                            "App can scan, link contacts, and clean inbox"
+                        } else {
+                            "Grant SMS & Contacts access to scan and link Google Messages threads"
+                        },
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
 
-            // Status badges for READ_SMS and WRITE_SMS
+            // Status badges for READ_SMS, WRITE_SMS, and READ_CONTACTS
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                // READ_SMS badge
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = if (hasReadPermission) TealAccent.copy(alpha = 0.15f) else AmberAccent.copy(alpha = 0.15f),
-                    border = BorderStroke(1.dp, if (hasReadPermission) TealAccent.copy(alpha = 0.4f) else AmberAccent.copy(alpha = 0.4f)),
+                PermissionChipBadge(
+                    label = "READ_SMS",
+                    granted = hasReadPermission,
                     modifier = Modifier.weight(1f)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (hasReadPermission) Icons.Default.Check else Icons.Default.Close,
-                            contentDescription = null,
-                            tint = if (hasReadPermission) TealAccent else AmberAccent,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Text(
-                            text = "READ_SMS",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (hasReadPermission) TealAccent else AmberAccent
-                        )
-                    }
-                }
-
-                // WRITE_SMS badge
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = if (hasWritePermission) TealAccent.copy(alpha = 0.15f) else AmberAccent.copy(alpha = 0.15f),
-                    border = BorderStroke(1.dp, if (hasWritePermission) TealAccent.copy(alpha = 0.4f) else AmberAccent.copy(alpha = 0.4f)),
+                )
+                PermissionChipBadge(
+                    label = "WRITE_SMS",
+                    granted = hasWritePermission,
                     modifier = Modifier.weight(1f)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (hasWritePermission) Icons.Default.Check else Icons.Default.Close,
-                            contentDescription = null,
-                            tint = if (hasWritePermission) TealAccent else AmberAccent,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Text(
-                            text = "WRITE_SMS",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (hasWritePermission) TealAccent else AmberAccent
-                        )
-                    }
-                }
+                )
+                PermissionChipBadge(
+                    label = "CONTACTS",
+                    granted = hasContactsPermission,
+                    modifier = Modifier.weight(1f)
+                )
             }
 
-            if (!bothGranted) {
-                Button(
-                    onClick = onRequestSmsPermission,
-                    colors = ButtonDefaults.buttonColors(containerColor = CyanAccent),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(40.dp)
-                        .testTag("request_sms_permissions_banner_btn")
+            if (!smsGranted || !hasContactsPermission) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(Icons.Default.LockOpen, contentDescription = null, tint = Navy900, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Request SMS Permissions", color = Navy900, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    if (!smsGranted) {
+                        Button(
+                            onClick = onRequestSmsPermission,
+                            colors = ButtonDefaults.buttonColors(containerColor = CyanAccent),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(42.dp)
+                                .testTag("request_sms_permissions_banner_btn")
+                        ) {
+                            Icon(Icons.Default.LockOpen, contentDescription = null, tint = Navy900, modifier = Modifier.size(15.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Grant SMS", color = Navy900, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
+                        }
+                    }
+
+                    if (!hasContactsPermission) {
+                        FilledTonalButton(
+                            onClick = onRequestContactsPermission,
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(42.dp)
+                                .testTag("request_contacts_permission_banner_btn")
+                        ) {
+                            Icon(Icons.Default.Contacts, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Grant Contacts", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
+                        }
+                    }
                 }
             }
         }
     }
 }
 
+@Composable
+private fun PermissionChipBadge(
+    label: String,
+    granted: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = if (granted) TealAccent.copy(alpha = 0.15f) else AmberAccent.copy(alpha = 0.15f),
+        border = BorderStroke(1.dp, if (granted) TealAccent.copy(alpha = 0.4f) else AmberAccent.copy(alpha = 0.4f)),
+        modifier = modifier
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Icon(
+                imageVector = if (granted) Icons.Default.Check else Icons.Default.Close,
+                contentDescription = null,
+                tint = if (granted) TealAccent else AmberAccent,
+                modifier = Modifier.size(12.dp)
+            )
+            Text(
+                text = label,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (granted) TealAccent else AmberAccent,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}

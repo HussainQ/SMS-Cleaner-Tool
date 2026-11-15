@@ -100,5 +100,14 @@ class RuntimePermissionsTest {
     fun permissionStringConstants_matchExpectedAndroidIdentifiers() {
         assertEquals("android.permission.READ_SMS", Manifest.permission.READ_SMS)
         assertEquals("android.permission.WRITE_SMS", PERMISSION_WRITE_SMS)
+        assertEquals("android.permission.READ_CONTACTS", Manifest.permission.READ_CONTACTS)
+    }
+
+    // TEST 8: Contacts permission toggle updates UI state and loads contacts
+    @Test
+    fun contactsPermission_grantAndRevoke_updatesUiState() {
+        assertFalse(viewModel.uiState.value.hasContactsPermission)
+        viewModel.setContactsPermission(true)
+        assertTrue(viewModel.uiState.value.hasContactsPermission)
     }
 }

@@ -22,6 +22,8 @@ data class SmsMessageItem(
     val threadId: Long = 0L,
     val rcsDeliveryStatus: RcsDeliveryStatus? = null,
     val isRcsChat: Boolean = false,
+    val contactName: String? = null,
+    val contactId: String? = null,
     val category: SmsCategory = SmsCategory.NORMAL,
     val duplicateGroupId: String? = null,
     val duplicateIndex: Int = 0,
@@ -34,6 +36,13 @@ data class SmsMessageItem(
     val isSelected: Boolean = true,
     val isQuarantined: Boolean = false
 ) {
+    val displaySender: String
+        get() = if (!contactName.isNullOrBlank() && !contactName.equals(address, ignoreCase = true)) {
+            "$contactName ($address)"
+        } else {
+            address
+        }
+
     val isCleanCandidate: Boolean
         get() = category != SmsCategory.NORMAL && (!category.equals(SmsCategory.DUPLICATE) || isDuplicateExtra)
 }

@@ -16,14 +16,16 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.text.style.TextOverflow
 import com.example.model.BackupHistoryRecord
 import com.example.model.CustomFilterRule
 import com.example.ui.CleanSmsUiState
 import com.example.ui.CleanSmsViewModel
 import com.example.ui.theme.*
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import com.example.ui.util.DateFormatterUtil
 
 @Composable
 fun RulesAndCloudScreen(
@@ -263,6 +265,7 @@ private fun CustomRulesPane(
                 items(uiState.customRules, key = { it.id }) { rule ->
                     CustomRuleItemCard(
                         rule = rule,
+                        onEdit = { viewModel.openEditRuleSheet(rule) },
                         onToggle = { viewModel.toggleRuleEnabled(rule) },
                         onDelete = { viewModel.deleteCustomRule(rule.id) }
                     )
@@ -275,6 +278,7 @@ private fun CustomRulesPane(
 @Composable
 private fun CustomRuleItemCard(
     rule: CustomFilterRule,
+    onEdit: () -> Unit,
     onToggle: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -286,7 +290,10 @@ private fun CustomRuleItemCard(
                 if (rule.isEnabled) TealAccent.copy(alpha = 0.4f) else CardBorder.copy(alpha = 0.4f)
             )
         ),
-        modifier = Modifier.fillMaxWidth().testTag("custom_rule_card_${rule.id}")
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onEdit)
+            .testTag("custom_rule_card_${rule.id}")
     ) {
         Column(
             modifier = Modifier.padding(14.dp),
@@ -298,6 +305,7 @@ private fun CustomRuleItemCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
+                    modifier = Modifier.weight(1f),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -317,18 +325,33 @@ private fun CustomRuleItemCard(
                         text = rule.name,
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp,
-                        color = TextPrimary
+                        color = TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = onEdit,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .testTag("edit_rule_button_${rule.id}")
+                    ) {
+                        Icon(
+                            Icons.Default.Edit,
+                            contentDescription = "Edit rule",
+                            tint = CyanAccent,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                     Switch(
                         checked = rule.isEnabled,
                         onCheckedChange = { onToggle() },
                         modifier = Modifier.height(28.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
-                    IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
+                    IconButton(onClick = onDelete, modifier = Modifier.size(40.dp)) {
                         Icon(
                             Icons.Default.Delete,
                             contentDescription = "Delete",
@@ -341,9 +364,24 @@ private fun CustomRuleItemCard(
 
             // Criteria badges row
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
+                if (rule.contactFilter.isNotBlank()) {
+                    Surface(
+                        color = CyanAccent.copy(alpha = 0.16f),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            text = "Contacts: ${rule.contactFilter.take(24)}${if (rule.contactFilter.length > 24) "..." else ""}",
+                            fontSize = 11.sp,
+                            color = CyanAccent,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
                 if (rule.senderFilter.isNotBlank()) {
                     Surface(
                         color = Slate600.copy(alpha = 0.3f),
@@ -363,7 +401,7 @@ private fun CustomRuleItemCard(
                         shape = RoundedCornerShape(6.dp)
                     ) {
                         Text(
-                            text = "Keywords: ${rule.keywords.take(18)}...",
+                            text = "Keywords: ${rule.keywords.take(18)}${if (rule.keywords.length > 18) "..." else ""}",
                             fontSize = 11.sp,
                             color = TextSecondary,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
@@ -700,6 +738,77 @@ private fun CloudBackupPane(
             Text("Back Up to ${uiState.selectedCloudProvider}", color = Navy900, fontWeight = FontWeight.Bold, fontSize = 14.sp)
         }
 
+        // GitHub Release Updates & Multi-Version Upgrade Card
+        val updateResult = uiState.updateCheckResult
+        val updateAvailable = updateResult?.isUpdateAvailable == true
+        Surface(
+            color = (if (updateAvailable) TealAccent else CyanAccent).copy(alpha = 0.1f),
+            shape = RoundedCornerShape(14.dp),
+            border = androidx.compose.foundation.BorderStroke(
+                1.dp,
+                (if (updateAvailable) TealAccent else CardBorder).copy(alpha = 0.55f)
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { viewModel.openUpdatesDialog() }
+                .testTag("cloud_pane_updates_card")
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = if (updateAvailable) Icons.Default.SystemUpdate else Icons.Default.Update,
+                        contentDescription = null,
+                        tint = if (updateAvailable) TealAccent else CyanAccent,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Column {
+                        Text(
+                            text = if (updateAvailable) {
+                                "Update Available: ${updateResult?.latestRelease?.tagName}"
+                            } else {
+                                "GitHub Updates • v${com.example.BuildConfig.VERSION_NAME}"
+                            },
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = if (updateAvailable) TealAccent else MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = when {
+                                updateAvailable -> "${updateResult?.versionsBehindCount ?: 1} version(s) behind • Direct upgrade ready"
+                                uiState.updateCheckStatus == com.example.update.UpdateCheckStatus.CHECKING -> "Checking ${uiState.gitHubRepoSlug}..."
+                                else -> "Tap to check ${uiState.gitHubRepoSlug} & inspect upgrade path"
+                            },
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+                TextButton(
+                    onClick = { viewModel.openUpdatesDialog() },
+                    modifier = Modifier.testTag("cloud_pane_check_updates_btn")
+                ) {
+                    Text(
+                        text = if (updateAvailable) "Pull Update" else "Check",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = if (updateAvailable) TealAccent else CyanAccent
+                    )
+                }
+            }
+        }
+
         // Snapshot History List
         Text(
             text = "Saved Cloud Snapshots (${uiState.backupHistory.size})",
@@ -727,7 +836,9 @@ private fun CloudBackupPane(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(uiState.backupHistory, key = { it.id }) { record ->
-                    val dateFormatted = SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault()).format(Date(record.backupTimestamp))
+                    val dateFormatted = remember(record.backupTimestamp) {
+                        DateFormatterUtil.formatBackupDate(record.backupTimestamp)
+                    }
                     Card(
                         shape = RoundedCornerShape(12.dp),
                         colors = CardDefaults.cardColors(containerColor = CardDark),

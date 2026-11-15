@@ -69,5 +69,21 @@ interface CleanSmsDao {
 
     @Query("DELETE FROM oauth_credentials")
     suspend fun clearAllCredentials()
+
+    // Testing Deleted Message Snapshots queries
+    @Query("SELECT * FROM deleted_test_snapshots ORDER BY deletedAt DESC")
+    fun getAllDeletedTestSnapshotsFlow(): Flow<List<DeletedTestSnapshotEntity>>
+
+    @Query("SELECT * FROM deleted_test_snapshots ORDER BY deletedAt DESC")
+    suspend fun getAllDeletedTestSnapshots(): List<DeletedTestSnapshotEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertDeletedTestSnapshots(snapshots: List<DeletedTestSnapshotEntity>)
+
+    @Query("DELETE FROM deleted_test_snapshots WHERE id IN (:ids)")
+    suspend fun deleteTestSnapshotsByIds(ids: List<String>)
+
+    @Query("DELETE FROM deleted_test_snapshots")
+    suspend fun clearAllDeletedTestSnapshots()
 }
 
