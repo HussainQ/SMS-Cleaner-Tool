@@ -5,6 +5,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -95,7 +96,15 @@ fun CleanSmsApp(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    var currentTab by remember { mutableStateOf(NavigationTab.SCANNER) }
+    val currentTab = uiState.currentTab
+
+    // Base Navigation Tab BackHandler (pops visited tabs in reverse click order down to Scanner root)
+    BackHandler(
+        enabled = !uiState.hasOpenOverlay &&
+            (uiState.tabBackStack.size > 1 || currentTab != NavigationTab.SCANNER)
+    ) {
+        viewModel.navigateBackTab()
+    }
 
     // Check initial permissions (SMS + Contacts) and re-check on lifecycle resume
     val checkPermissions = remember(context) {
@@ -310,7 +319,7 @@ fun CleanSmsApp(
 
                         NavigationRailItem(
                             selected = isSelected,
-                            onClick = { currentTab = tab },
+                            onClick = { viewModel.navigateToTab(tab) },
                             icon = {
                                 BadgedBox(
                                     badge = {
@@ -429,7 +438,7 @@ fun CleanSmsApp(
                             onRequestContactsPermission = requestContactsPermissionAction,
                             onRequestDefaultSmsRole = requestDefaultSmsRoleAction,
                             onHandBackDefaultSmsRole = handBackDefaultSmsRoleAction,
-                            onNavigateToPreview = { currentTab = NavigationTab.PREVIEW }
+                            onNavigateToPreview = { viewModel.navigateToTab(NavigationTab.PREVIEW) }
                         )
                     }
                 }
@@ -545,7 +554,7 @@ fun CleanSmsApp(
 
                             NavigationBarItem(
                                 selected = isSelected,
-                                onClick = { currentTab = tab },
+                                onClick = { viewModel.navigateToTab(tab) },
                                 icon = {
                                     BadgedBox(
                                         badge = {
@@ -582,11 +591,16 @@ fun CleanSmsApp(
                         onRequestContactsPermission = requestContactsPermissionAction,
                         onRequestDefaultSmsRole = requestDefaultSmsRoleAction,
                         onHandBackDefaultSmsRole = handBackDefaultSmsRoleAction,
-                        onNavigateToPreview = { currentTab = NavigationTab.PREVIEW }
+                        onNavigateToPreview = { viewModel.navigateToTab(NavigationTab.PREVIEW) }
                     )
                 }
             }
         }
+    }
+
+    // Window Overlay BackHandler (registered after screen content so open modals dismiss before sub-levels or tabs)
+    BackHandler(enabled = uiState.hasOpenOverlay) {
+        viewModel.dismissTopOverlay()
     }
 
     // Confirmation Step Dialog before Permanent Deletions

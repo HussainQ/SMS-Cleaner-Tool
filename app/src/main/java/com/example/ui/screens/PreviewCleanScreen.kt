@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -46,6 +47,13 @@ fun PreviewCleanScreen(
 ) {
     var searchInput by remember { mutableStateOf(uiState.searchQuery) }
 
+    // Keep local search input aligned when ViewModel resets searchQuery to empty (e.g., via Back)
+    LaunchedEffect(uiState.searchQuery) {
+        if (uiState.searchQuery.isEmpty() && searchInput.isNotEmpty()) {
+            searchInput = ""
+        }
+    }
+
     // Debounce search query updates to avoid per-keystroke stalls on large inboxes
     LaunchedEffect(searchInput) {
         if (searchInput.isEmpty()) {
@@ -54,6 +62,16 @@ fun PreviewCleanScreen(
             delay(150)
             viewModel.setSearchQuery(searchInput)
         }
+    }
+
+    // Sub-level BackHandlers: return category filter to ALL, or clear active search FIRST
+    val hasActiveSearch = searchInput.isNotEmpty() || uiState.searchQuery.isNotEmpty()
+    BackHandler(enabled = !uiState.hasOpenOverlay && !hasActiveSearch && uiState.selectedCategoryTab != SmsCategory.ALL) {
+        viewModel.setCategoryTab(SmsCategory.ALL)
+    }
+    BackHandler(enabled = !uiState.hasOpenOverlay && hasActiveSearch) {
+        searchInput = ""
+        viewModel.setSearchQuery("")
     }
 
     // Quick suggestion keywords for search

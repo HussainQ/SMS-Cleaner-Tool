@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.NavigationTab
 import com.example.cloud.CloudBackupManager
 import com.example.cloud.DeviceOAuthManager
 import com.example.data.ClassificationSummary
@@ -110,8 +111,24 @@ data class CleanSmsUiState(
     val updateCheckStatus: UpdateCheckStatus = UpdateCheckStatus.IDLE,
     val updateCheckResult: UpdateCheckResult? = null,
     val upgradeMigrationReport: UpgradeMigrationReport? = null,
-    val showUpdatesDialog: Boolean = false
-)
+    val showUpdatesDialog: Boolean = false,
+    // Hierarchical back-navigation state (top-level tab order of clicks + in-screen sub-tabs)
+    val currentTab: NavigationTab = NavigationTab.SCANNER,
+    val tabBackStack: List<NavigationTab> = listOf(NavigationTab.SCANNER),
+    val vaultSubTab: Int = 0, // 0 = Quarantine, 1 = Deleted Test
+    val rulesCloudSubTab: Int = 0 // 0 = Rules, 1 = Cloud Backup (compact phone mode)
+) {
+    val hasOpenOverlay: Boolean
+        get() = showMainContactPickerDialog ||
+            showPermanentDeleteDialog ||
+            showAddCustomRuleSheet ||
+            showRestoreCloudDialog ||
+            detailMessage != null ||
+            serviceToAuthorize != null ||
+            showPermissionRationaleDialog ||
+            showPermissionPermanentlyDeniedDialog ||
+            showUpdatesDialog
+}
 
 class CleanSmsViewModel @JvmOverloads constructor(
     application: Application,
@@ -1279,6 +1296,145 @@ class CleanSmsViewModel @JvmOverloads constructor(
                 }
             }
         }
+    }
+
+    // Hierarchical Navigation, Tab History (Order of Clicks), and Consistent Back Handling
+    fun navigateToTab(tab: NavigationTab) {
+        _uiState.update { state ->
+            if (state.currentTab == tab) return@update state
+            val nextStack = if (tab == NavigationTab.SCANNER) {
+                listOf(NavigationTab.SCANNER)
+            } else {
+                val withoutTab = state.tabBackStack.filterNot { it == tab }
+                val anchored = if (withoutTab.firstOrNull() == NavigationTab.SCANNER) {
+                    withoutTab
+                } else {
+                    listOf(NavigationTab.SCANNER) + withoutTab
+                }
+                anchored + tab
+            }
+            state.copy(
+                currentTab = tab,
+                tabBackStack = nextStack
+            )
+        }
+    }
+
+    fun setVaultSubTab(tabIndex: Int) {
+        val normalized = tabIndex.coerceIn(0, 1)
+        _uiState.update { it.copy(vaultSubTab = normalized) }
+    }
+
+    fun setRulesCloudSubTab(tabIndex: Int) {
+        val normalized = tabIndex.coerceIn(0, 1)
+        _uiState.update { it.copy(rulesCloudSubTab = normalized) }
+    }
+
+    fun dismissTopOverlay(): Boolean {
+        val state = _uiState.value
+        return when {
+            state.showMainContactPickerDialog -> {
+                closeMainContactPicker()
+                true
+            }
+            state.showPermanentDeleteDialog -> {
+                dismissPermanentDeleteDialog()
+                true
+            }
+            state.showAddCustomRuleSheet -> {
+                closeAddRuleSheet()
+                true
+            }
+            state.showRestoreCloudDialog -> {
+                dismissRestoreCloudDialog()
+                true
+            }
+            state.detailMessage != null -> {
+                showMessageDetails(null)
+                true
+            }
+            state.serviceToAuthorize != null -> {
+                if (!state.isAuthorizingService) {
+                    dismissServiceAuthorization()
+                }
+                true
+            }
+            state.showPermissionRationaleDialog -> {
+                dismissPermissionRationaleDialog()
+                true
+            }
+            state.showPermissionPermanentlyDeniedDialog -> {
+                dismissPermissionPermanentlyDeniedDialog()
+                true
+            }
+            state.showUpdatesDialog -> {
+                dismissUpdatesDialog()
+                true
+            }
+            else -> false
+        }
+    }
+
+    fun navigateBackTab(): Boolean {
+        var navigated = false
+        _uiState.update { state ->
+            when {
+                state.tabBackStack.size > 1 -> {
+                    val remaining = state.tabBackStack.dropLast(1)
+                    navigated = true
+                    state.copy(
+                        currentTab = remaining.last(),
+                        tabBackStack = remaining
+                    )
+                }
+                state.currentTab != NavigationTab.SCANNER -> {
+                    navigated = true
+                    state.copy(
+                        currentTab = NavigationTab.SCANNER,
+                        tabBackStack = listOf(NavigationTab.SCANNER)
+                    )
+                }
+                else -> state
+            }
+        }
+        return navigated
+    }
+
+    /**
+     * Unified back-navigation handler following hierarchy:
+     * Window Overlays -> In-screen Search/Category/Sub-Tab -> Tab Click-Order Stack -> Exit (returns false).
+     */
+    fun handleBackPress(isRulesCloudCompact: Boolean = true): Boolean {
+        if (dismissTopOverlay()) return true
+
+        val state = _uiState.value
+        when (state.currentTab) {
+            NavigationTab.PREVIEW -> {
+                if (state.searchQuery.isNotEmpty()) {
+                    _uiState.update { it.copy(searchQuery = "") }
+                    return true
+                }
+                if (state.selectedCategoryTab != SmsCategory.ALL) {
+                    _uiState.update { it.copy(selectedCategoryTab = SmsCategory.ALL) }
+                    return true
+                }
+            }
+            NavigationTab.VAULT -> {
+                if (state.vaultSubTab != 0) {
+                    _uiState.update { it.copy(vaultSubTab = 0) }
+                    return true
+                }
+            }
+            NavigationTab.RULES_CLOUD -> {
+                if (isRulesCloudCompact && state.rulesCloudSubTab != 0) {
+                    _uiState.update { it.copy(rulesCloudSubTab = 0) }
+                    return true
+                }
+            }
+            NavigationTab.SCANNER -> Unit
+        }
+
+        return navigateBackTab()
     }
 
     private data class RefreshResult(

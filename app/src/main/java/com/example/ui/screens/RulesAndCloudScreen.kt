@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -86,7 +87,11 @@ fun RulesAndCloudScreen(
             }
         } else {
             // Compact Handheld Phone Layout with uncrowded Segmented Controls
-            var selectedTab by remember { mutableIntStateOf(0) }
+            val selectedTab = uiState.rulesCloudSubTab
+
+            BackHandler(enabled = !uiState.hasOpenOverlay && selectedTab != 0) {
+                viewModel.setRulesCloudSubTab(0)
+            }
 
             Column(
                 modifier = Modifier
@@ -107,10 +112,12 @@ fun RulesAndCloudScreen(
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Surface(
-                            onClick = { selectedTab = 0 },
+                            onClick = { viewModel.setRulesCloudSubTab(0) },
                             shape = RoundedCornerShape(12.dp),
                             color = if (selectedTab == 0) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("rules_cloud_tab_rules")
                         ) {
                             Row(
                                 modifier = Modifier.padding(vertical = 10.dp),
@@ -134,10 +141,12 @@ fun RulesAndCloudScreen(
                         }
 
                         Surface(
-                            onClick = { selectedTab = 1 },
+                            onClick = { viewModel.setRulesCloudSubTab(1) },
                             shape = RoundedCornerShape(12.dp),
                             color = if (selectedTab == 1) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("rules_cloud_tab_cloud")
                         ) {
                             Row(
                                 modifier = Modifier.padding(vertical = 10.dp),

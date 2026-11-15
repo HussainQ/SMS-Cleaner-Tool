@@ -645,7 +645,7 @@ private fun DetectionRulesCard(
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 FilterToggleRow(
                     title = "Filter by Contact",
-                    subtitle = "Target or protect specific device contacts & Google Messages threads",
+                    subtitle = "Apply active cleaning rules only to selected contacts' threads, or protect VIP contacts",
                     icon = Icons.Default.Contacts,
                     iconColor = CyanAccent,
                     checked = uiState.filterByContactEnabled,

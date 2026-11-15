@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -28,7 +29,11 @@ fun VaultRestoreScreen(
     viewModel: CleanSmsViewModel,
     modifier: Modifier = Modifier
 ) {
-    var selectedVaultTab by remember { mutableIntStateOf(0) } // 0 = Quarantine, 1 = Deleted (Test)
+    val selectedVaultTab = uiState.vaultSubTab // 0 = Quarantine, 1 = Deleted (Test)
+
+    BackHandler(enabled = !uiState.hasOpenOverlay && selectedVaultTab != 0) {
+        viewModel.setVaultSubTab(0)
+    }
 
     val quarantined = uiState.quarantinedMessages
     val quarantinedSelectedCount = remember(quarantined) { quarantined.count { it.isSelected } }
@@ -102,7 +107,7 @@ fun VaultRestoreScreen(
                 ) {
                     SegmentedButton(
                         selected = selectedVaultTab == 0,
-                        onClick = { selectedVaultTab = 0 },
+                        onClick = { viewModel.setVaultSubTab(0) },
                         shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
                         modifier = Modifier.testTag("vault_tab_quarantine")
                     ) {
@@ -110,7 +115,7 @@ fun VaultRestoreScreen(
                     }
                     SegmentedButton(
                         selected = selectedVaultTab == 1,
-                        onClick = { selectedVaultTab = 1 },
+                        onClick = { viewModel.setVaultSubTab(1) },
                         shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
                         modifier = Modifier.testTag("vault_tab_deleted_test")
                     ) {

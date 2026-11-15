@@ -180,6 +180,19 @@ object SmsClassifier {
         val now = System.currentTimeMillis()
         val compiledRules = compileRules(activeRules)
         val hasGlobalContactFilter = filterByContactEnabled && selectedContactTokens.isNotEmpty()
+        // Collect all conversation threadIds that belong to any filtered contact so rules
+        // run across every thread belonging to those contacts (e.g. SMS + RCS threads).
+        val matchedContactThreadIds = if (hasGlobalContactFilter) {
+            val threadIds = HashSet<Long>()
+            for (msg in rawMessages) {
+                if (msg.threadId > 0L && matchesContactTokens(msg, selectedContactTokens)) {
+                    threadIds.add(msg.threadId)
+                }
+            }
+            threadIds
+        } else {
+            emptySet()
+        }
 
         // Step 1: Group duplicates in O(N) using normalized whitespace without Regex allocation
         val normalizedGroups = HashMap<String, MutableList<SmsMessageItem>>(rawMessages.size)
@@ -215,7 +228,10 @@ object SmsClassifier {
 
             sorted.forEachIndexed { index, msg ->
                 val isDuplicate = totalInGroup > 1 && index > 0
-                val matchesGlobalContact = hasGlobalContactFilter && matchesContactTokens(msg, selectedContactTokens)
+                val matchesGlobalContact = hasGlobalContactFilter && (
+                    matchesContactTokens(msg, selectedContactTokens) ||
+                        (msg.threadId > 0L && msg.threadId in matchedContactThreadIds)
+                    )
 
                 // If global Per-Contact Filter is in PROTECT (VIP) mode, keep matched contact safe
                 if (matchesGlobalContact && contactFilterMode == ContactFilterMode.PROTECT_CONTACTS) {
@@ -242,11 +258,15 @@ object SmsClassifier {
                 var isExpiredOtp = false
                 var matchedRuleName: String? = null
 
-                val allowGlobalRules = !hasGlobalContactFilter ||
+                // In TARGET_CONTACTS mode, run active rules strictly on threads belonging to
+                // the selected contacts rather than deleting all messages for those contacts outright.
+                val allowRulesForMessage = !hasGlobalContactFilter ||
                     contactFilterMode != ContactFilterMode.TARGET_CONTACTS ||
                     matchesGlobalContact
 
-                if (allowGlobalRules && isDuplicate && filterDuplicates) {
+                val isActiveDuplicate = allowRulesForMessage && isDuplicate && filterDuplicates
+
+                if (isActiveDuplicate) {
                     category = SmsCategory.DUPLICATE
                     matchReason = if (msg.isRcsChat || msg.protocol == MessageProtocol.RCS_CHAT) {
                         "RCS Duplicate in Thread #${msg.threadId}: Copy #${index + 1} of $totalInGroup (Master kept)"
@@ -255,7 +275,7 @@ object SmsClassifier {
                     } else {
                         "Duplicate: Identical copy #${index + 1} of $totalInGroup from ${msg.displaySender}"
                     }
-                } else {
+                } else if (allowRulesForMessage) {
                     val bodyLower = msg.body.lowercase()
                     val matchedRule = compiledRules.firstOrNull { compiled ->
                         matchesCompiledRule(msg, bodyLower, compiled, now)
@@ -265,14 +285,10 @@ object SmsClassifier {
                         category = SmsCategory.CUSTOM_RULE
                         matchedRuleName = matchedRule.rule.name
                         matchReason = "Matched custom rule: '${matchedRule.rule.name}'"
-                    } else if (matchesGlobalContact && contactFilterMode == ContactFilterMode.TARGET_CONTACTS && allowGlobalRules) {
-                        category = SmsCategory.CUSTOM_RULE
-                        matchedRuleName = "Contact Filter"
-                        matchReason = "Per-contact filter: Matched '${msg.contactName ?: msg.address}'"
-                    } else if (allowGlobalRules && filterSpam && isSpamMessageLower(bodyLower)) {
+                    } else if (filterSpam && isSpamMessageLower(bodyLower)) {
                         category = SmsCategory.SPAM
                         matchReason = "Spam / Phishing: Contains urgent threat or suspicious link"
-                    } else if (allowGlobalRules && filterOtps && isOtpMessageLower(msg.body, bodyLower)) {
+                    } else if (filterOtps && isOtpMessageLower(msg.body, bodyLower)) {
                         val code = extractOtpCode(msg.body)
                         otpCode = code
                         val ageMillis = now - msg.date
@@ -287,19 +303,20 @@ object SmsClassifier {
                                 "Active 2FA code ($code)"
                             }
                         }
-                    } else if (allowGlobalRules && filterPromotions && isPromotionalMessageLower(msg.address, bodyLower)) {
+                    } else if (filterPromotions && isPromotionalMessageLower(msg.address, bodyLower)) {
                         category = SmsCategory.PROMOTION
                         matchReason = "Promotional offer / Commercial marketing campaign"
                     }
                 }
 
+                val trackDuplicateMetadata = allowRulesForMessage && filterDuplicates && totalInGroup > 1
                 resultList.add(
                     msg.copy(
                         category = category,
-                        duplicateGroupId = if (totalInGroup > 1) groupId else null,
-                        duplicateIndex = index + 1,
-                        totalInDuplicateGroup = totalInGroup,
-                        isDuplicateExtra = isDuplicate,
+                        duplicateGroupId = if (trackDuplicateMetadata) groupId else null,
+                        duplicateIndex = if (trackDuplicateMetadata) index + 1 else 1,
+                        totalInDuplicateGroup = if (trackDuplicateMetadata) totalInGroup else 1,
+                        isDuplicateExtra = isActiveDuplicate,
                         matchReason = matchReason,
                         otpCode = otpCode,
                         isExpiredOtp = isExpiredOtp,

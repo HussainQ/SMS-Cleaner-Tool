@@ -16,6 +16,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogProperties
 import com.example.model.OAuthServiceDefinition
 import com.example.ui.theme.*
 
@@ -39,6 +40,10 @@ fun AuthorizeServiceDialog(
 ) {
     AlertDialog(
         onDismissRequest = { if (!isAuthorizing) onDismiss() },
+        properties = DialogProperties(
+            dismissOnBackPress = !isAuthorizing,
+            dismissOnClickOutside = !isAuthorizing
+        ),
         title = {
             Row(
                 verticalAlignment = Alignment.CenterVertically,

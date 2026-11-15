@@ -78,6 +78,9 @@ class AppUpgradeManager(private val context: Context) {
                 }
                 applied.add("v1.6.0: Initialized Default SMS hand-back, contact filters & deleted recovery state")
             }
+            if (effectivePrev in 1 until 10601 && targetVersionCode >= 10601) {
+                applied.add("v1.6.1: Scoped per-contact filter rules cleanly across contact threads")
+            }
             if (prefs.getString(KEY_GITHUB_REPO, null)?.equals(LEGACY_PLACEHOLDER_REPO, ignoreCase = true) == true) {
                 prefs.edit().putString(KEY_GITHUB_REPO, DEFAULT_GITHUB_REPO).apply()
             }

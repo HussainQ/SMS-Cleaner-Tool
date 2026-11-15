@@ -3,7 +3,7 @@ package com.example.model
 enum class ContactFilterMode(val displayName: String, val description: String) {
     TARGET_CONTACTS(
         displayName = "Target Selected",
-        description = "Flag messages from selected contacts for cleaning"
+        description = "Apply active cleaning rules only to selected contacts' threads"
     ),
     PROTECT_CONTACTS(
         displayName = "Protect (VIP)",

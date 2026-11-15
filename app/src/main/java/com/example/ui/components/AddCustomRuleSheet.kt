@@ -1,5 +1,6 @@
 package com.example.ui.components
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -73,6 +74,10 @@ fun AddCustomRuleSheet(
         onDismissRequest = onDismiss,
         modifier = Modifier.testTag("add_custom_rule_sheet")
     ) {
+        BackHandler(enabled = showContactPicker) {
+            showContactPicker = false
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxWidth()

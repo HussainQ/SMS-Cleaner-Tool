@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
@@ -54,6 +55,11 @@ fun AppUpdatesDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
+        BackHandler(enabled = editingRepo) {
+            editingRepo = false
+            repoInput = uiState.gitHubRepoSlug
+        }
+
         Card(
             modifier = Modifier
                 .fillMaxWidth(0.94f)
