@@ -8,12 +8,16 @@
 [![Min SDK](https://img.shields.io/badge/Min%20SDK-24%20(Android%207.0)-informational?style=flat-square)](https://developer.android.com/about/versions)
 [![Target SDK](https://img.shields.io/badge/Target%20SDK-36%20(Android%2016)-success?style=flat-square)](https://developer.android.com/about/versions)
 [![Privacy](https://img.shields.io/badge/Privacy-100%25%20On--Device-success?style=flat-square&logo=shield)](https://github.com/HussainQ/SMS-Cleaner-Tool)
-[![Pre-Release](https://img.shields.io/badge/Pre--Release-v1.6.0--pre.1%20(Local%20Test%20Only)-amber?style=flat-square)](https://github.com/HussainQ/SMS-Cleaner-Tool/releases)
+[![Pre-Release](https://img.shields.io/badge/Pre--Release-v1.6.0--pre.2%20(Local%20Test%20Only)-amber?style=flat-square)](https://github.com/HussainQ/SMS-Cleaner-Tool/releases)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue?style=flat-square)](LICENSE)
 
 > [!WARNING]
-> **Current Pre-Release (`v1.6.0-pre.1`) — Non-Production / Local Device Testing Only**:
-> This repository's active pre-release (`v1.6.0-pre.1`, `versionCode = 10600`) is designated strictly for **non-production evaluation and testing on a local Android device**. See [`RELEASE_NOTES.md`](RELEASE_NOTES.md), [GitHub Releases](https://github.com/HussainQ/SMS-Cleaner-Tool/releases), and [`.github/workflows/prerelease.yml`](.github/workflows/prerelease.yml) for full details and SHA-256 verification.
+> **Current Pre-Release (`v1.6.0-pre.2`) — Non-Production / Local Device Testing Only**:
+> This repository's active pre-release (`v1.6.0-pre.2`, `versionCode = 10601`) is designated strictly for **non-production evaluation and testing on a local Android device**. See [`RELEASE_NOTES.md`](RELEASE_NOTES.md), [GitHub Releases](https://github.com/HussainQ/SMS-Cleaner-Tool/releases), and [`.github/workflows/prerelease.yml`](.github/workflows/prerelease.yml) for full details and SHA-256 verification.
+
+> [!IMPORTANT]
+> **Upgrading from Older Releases (One-Time Uninstall Required):**
+> Starting cleanly on the consistent Application ID **`com.aistudio.cleansms.jrvxpq`** with persistent CI signing, you **must uninstall the previous CleanSMS version first** before installing `v1.6.0-pre.2` if your installed build used a different package name or an earlier ephemerally-signed CI key (which causes Android's *"App not installed as package conflicts with an existing package"* error). Once installed, `com.aistudio.cleansms.jrvxpq` remains fixed for all future releases so subsequent updates install in-place cleanly.
 
 ---
 
@@ -80,7 +84,7 @@
 | Property | Value |
 | :--- | :--- |
 | **App Name** | `CleanSMS` |
-| **Application ID** | `com.aistudio.cleansms.jrvxpq` |
+| **Application ID** | `com.aistudio.cleansms.jrvxpq` *(locked consistently for all future updates)* |
 | **Package Namespace** | `com.example` |
 | **Compile SDK** | `Android 16 (API 36.1)` |
 | **Target SDK** | `Android 16 (API 36)` |
@@ -89,6 +93,10 @@
 | **Architecture** | Clean Architecture / MVVM + StateFlow |
 | **Local Database** | Room Database v4 (KSP) |
 | **Default SMS Role** | Seamless Role Takeover & Hand-Back (`RoleManager` / `ACTION_MANAGE_DEFAULT_APPS_SETTINGS`) |
+
+#### Installing Over a Previous Version
+- **Why package conflicts happen:** Android rejects in-place APK updates with *"App not installed as package conflicts with an existing package"* if the installed copy has a different package ID or a different signing certificate (earlier CI runs generated ephemeral keys).
+- **One-time migration step:** Export any custom rules/messages you want to keep in **Rules & Cloud**, **uninstall the old CleanSMS app**, and then install the latest release APK (`com.aistudio.cleansms.jrvxpq`). Subsequent builds reuse the same Application ID and persistent CI keystore so in-place updates work going forward.
 
 ### Declared System Permissions
 
@@ -125,7 +133,8 @@ $$\text{Version Code} = (\text{MAJOR} \times 10000) + (\text{MINOR} \times 100) 
 | `v1.3.0` | `1.3.0` | `10300` | Beta | Reactive foldable & tablet layouts, search bar, secrets audit |
 | `v1.4.0` | `1.4.0` | `10400` | Beta | On-device OAuth secret pulling, user authorization gate, local vault storage |
 | `v1.5.0-pre.1` | `1.5.0-pre.1` | `10500` | Pre-Release (Local Test Only) | Android Runtime & Manifest SMS Permissions (`READ_SMS`, `RECEIVE_SMS`, `WRITE_SMS`), ViewModel Factory fix |
-| `v1.6.0-pre.1` | `1.6.0-pre.1` | `10600` | **Pre-Release (Non-Production • Local Device Test Only)** | Per-contact filtering (`READ_CONTACTS`), seamless Default SMS role hand-back, testing deleted-message recovery toggle, editable custom rules, 5,000+ inbox ANR/performance optimizations |
+| `v1.6.0-pre.1` | `1.6.0-pre.1` | `10600` | Pre-Release | Per-contact filtering (`READ_CONTACTS`), seamless Default SMS role hand-back, testing deleted-message recovery toggle, editable custom rules, 5,000+ inbox ANR/performance optimizations |
+| `v1.6.0-pre.2` | `1.6.0-pre.2` | `10601` | **Pre-Release (Non-Production • Local Device Test Only)** | Persistent CI signing keystore, Default SMS App status indicator UI, GitHub Releases updater & documented one-time uninstall migration |
 
 ### Release Tracks
 

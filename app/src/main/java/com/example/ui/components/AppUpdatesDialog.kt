@@ -321,7 +321,7 @@ fun AppUpdatesDialog(
                                                 color = MaterialTheme.colorScheme.onSurface
                                             )
                                             Text(
-                                                text = "Room schema migrations (v1→v4) & app preferences migrate directly in one jump—no intermediate APK installs required.",
+                                                text = "Room schema migrations (v1→v4) & app preferences migrate directly in one jump—no intermediate APK installs required. Note: if upgrading once from a build with a different package name or signing certificate, uninstall the previous version first before installing com.aistudio.cleansms.jrvxpq.",
                                                 fontSize = 11.sp,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )

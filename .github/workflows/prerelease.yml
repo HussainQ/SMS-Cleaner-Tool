@@ -12,9 +12,9 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Pre-release tag name (e.g. v1.6.0-pre.1)'
-        required: true
-        default: 'v1.6.0-pre.1'
+        description: 'Pre-release tag name (defaults to v<versionName> from app/build.gradle.kts)'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -53,9 +53,36 @@ jobs:
             fi
           done
 
-      - name: Ensure Local Testing Debug Keystore Exists
+      - name: Restore Cached Persistent CI Debug Keystore
+        id: keystore-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: debug.keystore
+          key: cleansms-ci-debug-keystore-v2
+
+      - name: Configure Persistent Signing Keystore
+        id: signing
+        env:
+          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          if [ ! -f debug.keystore ]; then
+          if [ -n "$RELEASE_KEYSTORE_BASE64" ] && [ -n "$STORE_PASSWORD" ] && [ -n "$KEY_PASSWORD" ]; then
+            echo "$RELEASE_KEYSTORE_BASE64" | base64 --decode > my-upload-key.jks
+            echo "build_mode=release" >> "$GITHUB_OUTPUT"
+            echo "save_cache=false" >> "$GITHUB_OUTPUT"
+            echo "Signed with persistent RELEASE_KEYSTORE_BASE64 secret."
+          elif [ -n "$DEBUG_KEYSTORE_BASE64" ]; then
+            echo "$DEBUG_KEYSTORE_BASE64" | base64 --decode > debug.keystore
+            echo "build_mode=debug" >> "$GITHUB_OUTPUT"
+            echo "save_cache=false" >> "$GITHUB_OUTPUT"
+            echo "Signed with persistent DEBUG_KEYSTORE_BASE64 secret."
+          elif [ -f debug.keystore ]; then
+            echo "build_mode=debug" >> "$GITHUB_OUTPUT"
+            echo "save_cache=false" >> "$GITHUB_OUTPUT"
+            echo "Reusing cached persistent CI debug.keystore (for permanent key continuity, set DEBUG_KEYSTORE_BASE64 secret)."
+          else
             keytool -genkeypair -v \
               -keystore debug.keystore \
               -storepass android \
@@ -64,18 +91,39 @@ jobs:
               -keyalg RSA \
               -keysize 2048 \
               -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US"
+              -dname "CN=CleanSMS Local Testing,O=CleanSMS,C=US"
+            echo "build_mode=debug" >> "$GITHUB_OUTPUT"
+            echo "save_cache=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Generated initial CI debug.keystore (cached for future runs; set DEBUG_KEYSTORE_BASE64 repository secret for permanent cross-run & cross-machine continuity)."
           fi
+
+      - name: Save Generated CI Debug Keystore to Cache
+        if: steps.signing.outputs.save_cache == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: debug.keystore
+          key: cleansms-ci-debug-keystore-v2
 
       - name: Run Gradle and Robolectric Verification Suite
         run: gradle :app:testDebugUnitTest
 
-      - name: Assemble Local Testing Pre-Release APK
-        run: gradle :app:assembleDebug
+      - name: Assemble Pre-Release APK
+        env:
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ "${{ steps.signing.outputs.build_mode }}" = "release" ]; then
+            gradle :app:assembleRelease
+          else
+            gradle :app:assembleDebug
+          fi
 
-      - name: Prepare Pre-Release Artifacts & Checksums
+      - name: Prepare Pre-Release Artifacts, Checksums & Signing Certificate Fingerprint
         id: artifacts
         run: |
+          VERSION_NAME=$(grep -m1 'versionName =' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')
+          DEFAULT_TAG="v${VERSION_NAME:-1.6.0-pre.2}"
+
           if [ -n "${{ github.event.inputs.tag_name }}" ]; then
             TAG="${{ github.event.inputs.tag_name }}"
           elif [ -n "${{ github.event.release.tag_name }}" ]; then
@@ -83,16 +131,25 @@ jobs:
           elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
             TAG="${{ github.ref_name }}"
           else
-            TAG="v1.6.0-pre.1"
+            TAG="$DEFAULT_TAG"
           fi
 
-          APK_SOURCE="app/build/outputs/apk/debug/app-debug.apk"
+          if [ "${{ steps.signing.outputs.build_mode }}" = "release" ] && [ -f "app/build/outputs/apk/release/app-release.apk" ]; then
+            APK_SOURCE="app/build/outputs/apk/release/app-release.apk"
+          else
+            APK_SOURCE="app/build/outputs/apk/debug/app-debug.apk"
+          fi
+
           APK_DEST="CleanSMS-${TAG}-nonprod-local-test.apk"
           cp "$APK_SOURCE" "$APK_DEST"
           sha256sum "$APK_DEST" > "${APK_DEST}.sha256"
-          echo "apk_file=${APK_DEST}" >> $GITHUB_OUTPUT
-          echo "sha_file=${APK_DEST}.sha256" >> $GITHUB_OUTPUT
-          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+
+          CERT_SHA256=$(keytool -printcert -jarfile "$APK_DEST" | grep -m1 'SHA256:' | awk '{print $2}' || true)
+          echo "apk_file=${APK_DEST}" >> "$GITHUB_OUTPUT"
+          echo "sha_file=${APK_DEST}.sha256" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "cert_sha256=${CERT_SHA256}" >> "$GITHUB_OUTPUT"
+          echo "APK Signing Certificate SHA-256: ${CERT_SHA256}"
 
       - name: Publish GitHub Pre-Release (Non-Production / Local Testing Only)
         uses: softprops/action-gh-release@v2
@@ -106,15 +163,3 @@ jobs:
           files: |
             ${{ steps.artifacts.outputs.apk_file }}
             ${{ steps.artifacts.outputs.sha_file }}
-
-      - name: Attach APK to Any Existing Manual Releases in Repository
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          APK_FILE="${{ steps.artifacts.outputs.apk_file }}"
-          SHA_FILE="${{ steps.artifacts.outputs.sha_file }}"
-          for EXISTING_TAG in $(gh release list --limit 10 --json tagName --jq '.[].tagName' 2>/dev/null || true); do
-            echo "Ensuring APK asset is attached to release: $EXISTING_TAG"
-            gh release upload "$EXISTING_TAG" "$APK_FILE" "$SHA_FILE" --clobber || true
-            gh release edit "$EXISTING_TAG" --prerelease || true
-          done
