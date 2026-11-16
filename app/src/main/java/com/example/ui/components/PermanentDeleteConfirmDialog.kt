@@ -142,7 +142,7 @@ fun PermanentDeleteConfirmDialog(
                     } else {
                         "WARNING: This cannot be undone. To prevent accidental data loss, verify your selection below."
                     },
-                    color = if (testingRestoreEnabled) com.example.ui.theme.CyanAccent else RedDestructive,
+                    color = if (testingRestoreEnabled) MaterialTheme.colorScheme.primary else RedDestructive,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 12.sp
                 )

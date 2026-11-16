@@ -39,7 +39,7 @@ fun MessageCard(
         SmsCategory.PROMOTION -> RoseAccent
         SmsCategory.SPAM -> RedDestructive
         SmsCategory.CUSTOM_RULE -> TealAccent
-        SmsCategory.ALL -> CyanAccent
+        SmsCategory.ALL -> MaterialTheme.colorScheme.primary
         SmsCategory.NORMAL -> Slate600
     }
 
@@ -102,7 +102,7 @@ fun MessageCard(
 
                         if (isRcs) {
                             Surface(
-                                color = CyanAccent.copy(alpha = 0.18f),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
                                 shape = RoundedCornerShape(6.dp)
                             ) {
                                 Row(
@@ -113,19 +113,19 @@ fun MessageCard(
                                     Icon(
                                         imageVector = Icons.Default.ChatBubbleOutline,
                                         contentDescription = "RCS",
-                                        tint = CyanAccent,
+                                        tint = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(10.dp)
                                     )
                                     Text(
                                         text = "RCS",
-                                        color = CyanAccent,
+                                        color = MaterialTheme.colorScheme.primary,
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.ExtraBold
                                     )
                                     if (message.rcsDeliveryStatus != null) {
                                         Text(
                                             text = "• ${message.rcsDeliveryStatus.displayName}",
-                                            color = CyanAccent.copy(alpha = 0.9f),
+                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
                                             fontSize = 9.sp,
                                             fontWeight = FontWeight.Medium
                                         )

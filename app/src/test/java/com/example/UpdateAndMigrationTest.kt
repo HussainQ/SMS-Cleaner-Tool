@@ -744,4 +744,39 @@ class UpdateAndMigrationTest {
         assertTrue(SemanticVersion.parse("v1.7.1-pre.1")!! > SemanticVersion.parse("v1.7.0-pre.1")!!)
         assertEquals(10701, SemanticVersion.parse("v1.7.1-pre.1")!!.toVersionCode())
     }
+
+    @Test
+    fun appUpgradeManager_upgradeTo172Pre1_recordsMilestoneAndDeviceMaterialThemeDefault() {
+        val prefs = context.getSharedPreferences(AppUpgradeManager.PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit()
+            .clear()
+            .putInt("last_migrated_version_code", 10701)
+            .putString("last_migrated_version_name", "1.7.1-pre.1")
+            .commit()
+
+        val manager = AppUpgradeManager(context)
+        val report = manager.ensureStateMigrated(
+            targetVersionCode = 10702,
+            targetVersionName = "1.7.2-pre.1"
+        )
+
+        assertFalse(report.wasMultiVersionJump)
+        assertEquals(6, report.databaseSchemaVersion)
+        assertEquals("1.7.1-pre.1", report.previousVersionName)
+        assertEquals(10701, report.previousVersionCode)
+        assertEquals(
+            listOf("v1.7.2: Device Material UI & Material You dynamic theming with Settings toggle"),
+            report.appliedMilestones
+        )
+
+        assertTrue(SemanticVersion.parse("v1.7.2-pre.1")!! > SemanticVersion.parse("v1.7.1-pre.1")!!)
+        assertEquals(10702, SemanticVersion.parse("v1.7.2-pre.1")!!.toVersionCode())
+
+        // Device Material UI theme defaults to true and persists updates
+        assertTrue(manager.isUseDeviceMaterialTheme())
+        manager.setUseDeviceMaterialTheme(false)
+        assertFalse(manager.isUseDeviceMaterialTheme())
+        manager.setUseDeviceMaterialTheme(true)
+        assertTrue(manager.isUseDeviceMaterialTheme())
+    }
 }

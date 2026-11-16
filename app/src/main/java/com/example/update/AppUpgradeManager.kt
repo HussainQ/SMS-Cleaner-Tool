@@ -47,6 +47,14 @@ class AppUpgradeManager(private val context: Context) {
         prefs.edit().putBoolean(KEY_COMPACT_MESSAGES_UI, compact).apply()
     }
 
+    fun isUseDeviceMaterialTheme(): Boolean {
+        return prefs.getBoolean(KEY_USE_DEVICE_MATERIAL_THEME, true)
+    }
+
+    fun setUseDeviceMaterialTheme(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_USE_DEVICE_MATERIAL_THEME, enabled).apply()
+    }
+
     /**
      * Runs idempotent milestone state migrations from [storedVersionCode] up to [targetVersionCode],
      * guaranteeing airtight upgrades even if the user jumped multiple versions at once.
@@ -98,6 +106,9 @@ class AppUpgradeManager(private val context: Context) {
             if (effectivePrev in 1 until 10701 && targetVersionCode >= 10701) {
                 applied.add("v1.7.1: Cross-app Archived & Spam message folders (Room v6 + Telephony sync) & direct Compact UI toggle")
             }
+            if (effectivePrev in 1 until 10702 && targetVersionCode >= 10702) {
+                applied.add("v1.7.2: Device Material UI & Material You dynamic theming with Settings toggle")
+            }
             if (prefs.getString(KEY_GITHUB_REPO, null)?.equals(LEGACY_PLACEHOLDER_REPO, ignoreCase = true) == true) {
                 prefs.edit().putString(KEY_GITHUB_REPO, DEFAULT_GITHUB_REPO).apply()
             }
@@ -134,6 +145,7 @@ class AppUpgradeManager(private val context: Context) {
         private const val KEY_GITHUB_REPO = "github_repo_slug"
         private const val KEY_INCLUDE_PRERELEASES = "include_prereleases"
         private const val KEY_COMPACT_MESSAGES_UI = "compact_messages_ui"
+        private const val KEY_USE_DEVICE_MATERIAL_THEME = "use_device_material_theme"
         private const val KEY_LAST_VERSION_CODE = "last_migrated_version_code"
         private const val KEY_LAST_VERSION_NAME = "last_migrated_version_name"
         private const val KEY_LAST_MIGRATED_EPOCH = "last_migrated_epoch"

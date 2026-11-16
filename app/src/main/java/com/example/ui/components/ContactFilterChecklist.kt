@@ -100,7 +100,7 @@ fun ContactFilterChecklist(
         border = BorderStroke(
             1.dp,
             if (filterEnabled && selectedCount > 0) {
-                CyanAccent.copy(alpha = 0.55f)
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
             } else {
                 MaterialTheme.colorScheme.outline.copy(alpha = 0.22f)
             }
@@ -127,7 +127,7 @@ fun ContactFilterChecklist(
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Surface(
-                        color = CyanAccent.copy(alpha = 0.16f),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.size(34.dp)
                     ) {
@@ -135,7 +135,7 @@ fun ContactFilterChecklist(
                             Icon(
                                 imageVector = Icons.Default.Contacts,
                                 contentDescription = null,
-                                tint = CyanAccent,
+                                tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(18.dp)
                             )
                         }
@@ -153,14 +153,14 @@ fun ContactFilterChecklist(
                             )
                             if (selectedCount > 0) {
                                 Surface(
-                                    color = CyanAccent.copy(alpha = 0.2f),
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
                                     shape = CircleShape
                                 ) {
                                     Text(
                                         text = "$selectedCount checked",
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = CyanAccent,
+                                        color = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
                                     )
                                 }
@@ -218,7 +218,7 @@ fun ContactFilterChecklist(
                             Icon(
                                 imageVector = Icons.Default.OpenInFull,
                                 contentDescription = "Open Full Contacts Picker",
-                                tint = CyanAccent,
+                                tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(18.dp)
                             )
                         }
@@ -233,8 +233,13 @@ fun ContactFilterChecklist(
                 } else {
                     "Scoped to $selectedCount contact(s) ($selectedThreadCount thread(s)): only duplicates & rules in these threads apply"
                 }
+                val scopeAccent = if (filterMode == ContactFilterMode.PROTECT_CONTACTS) {
+                    MaterialTheme.colorScheme.secondary
+                } else {
+                    MaterialTheme.colorScheme.primary
+                }
                 Surface(
-                    color = (if (filterMode == ContactFilterMode.PROTECT_CONTACTS) TealAccent else CyanAccent).copy(alpha = 0.12f),
+                    color = scopeAccent.copy(alpha = 0.12f),
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -244,7 +249,7 @@ fun ContactFilterChecklist(
                         text = scopeSummaryText ?: defaultScopeText,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium,
-                        color = if (filterMode == ContactFilterMode.PROTECT_CONTACTS) TealAccent else CyanAccent,
+                        color = scopeAccent,
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                     )
                 }
@@ -259,9 +264,9 @@ fun ContactFilterChecklist(
             // Inline Contacts Permission Prompt if not granted
             if (!hasContactsPermission && onRequestContactsPermission != null) {
                 Surface(
-                    color = CyanAccent.copy(alpha = 0.08f),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
                     shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, CyanAccent.copy(alpha = 0.35f)),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -281,7 +286,7 @@ fun ContactFilterChecklist(
                             onClick = onRequestContactsPermission,
                             modifier = Modifier.testTag("${testTagPrefix}_grant_contacts_btn")
                         ) {
-                            Text("Allow", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = CyanAccent)
+                            Text("Allow", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                         }
                     }
                 }
@@ -395,10 +400,10 @@ private fun ContactCheckboxRow(
     val contact = entry.contact
     Surface(
         shape = RoundedCornerShape(10.dp),
-        color = if (isChecked) CyanAccent.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+        color = if (isChecked) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
         border = BorderStroke(
             1.dp,
-            if (isChecked) CyanAccent.copy(alpha = 0.65f) else CardBorder.copy(alpha = 0.3f)
+            if (isChecked) MaterialTheme.colorScheme.primary.copy(alpha = 0.65f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
         ),
         modifier = Modifier
             .fillMaxWidth()
@@ -458,14 +463,14 @@ private fun ContactCheckboxRow(
 
             if (entry.messageCount > 0) {
                 Surface(
-                    color = if (isChecked) CyanAccent.copy(alpha = 0.22f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                    color = if (isChecked) MaterialTheme.colorScheme.primary.copy(alpha = 0.22f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
                     shape = RoundedCornerShape(6.dp)
                 ) {
                     Text(
                         text = "${entry.messageCount} msg${if (entry.messageCount == 1) "" else "s"}",
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
-                        color = if (isChecked) CyanAccent else MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = if (isChecked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
                     )
                 }

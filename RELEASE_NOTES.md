@@ -1,11 +1,8 @@
-# ⚠️ CleanSMS `v1.7.1-pre.1` — Non-Production Pre-Release
+# CleanSMS `v1.7.2-pre.1` Pre-Release Notes (Non-Production Local Testing)
 
-> [!WARNING]
-> **NON-PRODUCTION BUILD — FOR LOCAL DEVICE TESTING PURPOSES ONLY**
+> **Important:** This pre-release build is intended strictly for **local device testing**. It **is** a pre-release (`prerelease: true`) and does **not** promote to production.
 >
-> This release is strictly a **Pre-Release (`prerelease: true`)** intended exclusively for **local device evaluation, QA verification, and sandbox testing**.
-> - **DO NOT** deploy or distribute this build to production environments or commercial app stores.
-> - **In-Place Upgrades from `v1.6.1-pre.1` / `v1.6.2-pre.1` / `v1.7.0-pre.1`:** Installs directly over prior `v1.6.1+` builds (using `com.aistudio.cleansms.jrvxpq` and the persistent CI/debug signing keystore).
+> **In-Place Upgrades from `v1.6.1+` / `v1.7.0-pre.1` / `v1.7.1-pre.1`:** Installs directly over prior builds using Application ID `com.aistudio.cleansms.jrvxpq` and the persistent signing keystore.
 
 ---
 
@@ -13,44 +10,40 @@
 
 | Field | Value |
 | :--- | :--- |
-| **Release Tag** | `v1.7.1-pre.1` |
+| **Release Tag** | `v1.7.2-pre.1` |
 | **Release Type** | `Pre-Release` (`prerelease: true`, `make_latest: false`) |
-| **Target Environment** | Non-Production • Local Device Testing Only |
 | **Application ID** | `com.aistudio.cleansms.jrvxpq` |
-| **Version Name** | `1.7.1-pre.1` |
-| **Version Code** | `10701` |
+| **Version Name** | `1.7.2-pre.1` |
+| **Version Code** | `10702` |
 | **Room Schema Version** | `v6` (automatic non-destructive migrations `v1 → v6`) |
 | **Min / Target SDK** | API 24 (Android 7.0) / API 36 (Android 16) |
-| **Artifact Name** | `CleanSMS-v1.7.1-pre.1-nonprod-local-test.apk` |
+| **Artifact Name** | `CleanSMS-v1.7.2-pre.1-nonprod-local-test.apk` |
 
 ---
 
-## ✨ What's New in `v1.7.1-pre.1`
+## ✨ What's New in `v1.7.2-pre.1`
 
-### 1. Cross-App Archived & Spam Folders (`Messages` Tab)
-- Added dedicated **Inbox**, **Archived**, and **Spam** folder tabs directly inside **Messages**, isolating archived threads and spam/blocked conversations out of the main inbox.
-- **Provider & Third-Party App Preservation:** Reads thread-level archive/spam flags from Android Telephony (`conversations?simple=true` / `archived`, `is_archived`, `spam`, `is_spam`, `spam_type`, `junk`, `blocked`, `folder`) and Android's system `BlockedNumberContract`, automatically persisting observed states in Room `v6` (`thread_folder_states`).
-- **Stays Categorized Across Apps & Rescans:** Conversations archived or flagged as spam in Google Messages, CleanSMS, or another SMS client stay categorized in **Archived** / **Spam** across refreshes and app switches until you explicitly tap **Unarchive** or **Not Spam (Move to Inbox)** (saved with an explicit user-override guard).
-- **Best-Effort Two-Way Telephony Sync:** Archiving/unarchiving in CleanSMS also writes back `archived` on standard Telephony conversation threads.
+### 1. Device Material UI & Dynamic Material You Theming
+- **Follow Device UI Settings Automatically:** CleanSMS now picks up the device's system Dark/Light mode (`isSystemInDarkTheme()`) and Android 12+ (API 31+) Material You dynamic color palette (`dynamicDarkColorScheme` / `dynamicLightColorScheme`), with tailored Light & Dark Material 3 fallback palettes on Android 7–11.
+- **Settings Toggle (`Use Device Material UI`):** Added an explicit **Use Device Material UI** switch inside **Rules & Cloud > Settings** and synced it in **Messages > Display Settings**. Toggle it OFF anytime to switch back to the Classic CleanSMS Navy & Cyan theme.
+- **Full-App Adaptive Surfaces & Edge-to-Edge System Bars:** Migrated screens, dialogs, badges, cards, buttons, and top/bottom navigation bars across Messages, Scanner, Review, Vault, and Rules & Cloud to `MaterialTheme.colorScheme` tokens paired with responsive `SystemBarStyle` edge-to-edge updates.
 
-### 2. Direct One-Tap Compact UI Toggle
-- Added a one-tap **Compact** toggle button directly beside the top conversation search bar in **Messages**, synced bidirectionally with **Messages Display Settings** and **Rules & Cloud > Settings**.
-
-### 3. Hierarchical Back Button Support
-- Extended Messages tab Back navigation to cleanly unwind: Overlay Dialog → Active Conversation → Search Query → Protocol Filter (`SMS`/`MMS`/`RCS`) → Folder Filter (`Archived`/`Spam` → `Inbox`) → Tab History Stack.
+### 2. Includes All Prior `v1.7.x` & `v1.6.x` Enhancements
+- Full **SMS / MMS / RCS Messaging** landing tab with conversation search bar, protocol filters, Archived & Spam cross-app folder sync, and 1-tap Compact UI density toggle.
+- Room `v6` background `@Query` + Coroutine `Flow` contact filtering, Vault contact grouping, Recently Deleted batch restoration, and in-app APK updates with SHA-256 verification.
 
 ---
 
-## 📲 Local Device Testing Instructions
+## 📲 Local Testing & Verification Instructions
 
-1. **Direct In-App Update (from `v1.6.1-pre.1` / `v1.6.2-pre.1` / `v1.7.0-pre.1`):**
-   - Open **Updates** in CleanSMS, ensure **Include Pre-Releases** is ON, check `HussainQ/SMS-Cleaner-Tool`, and tap **Download & Install** directly inside the app.
+1. **Direct In-App Update:**
+   - Open **Updates** in CleanSMS, ensure pre-releases are enabled, check `HussainQ/SMS-Cleaner-Tool`, and tap **Download & Install** directly inside the app.
 2. **Manual Download & Verify the APK:**
-   - Download `CleanSMS-v1.7.1-pre.1-nonprod-local-test.apk` and its `.sha256` file from the GitHub Release assets.
+   - Download `CleanSMS-v1.7.2-pre.1-nonprod-local-test.apk` and `CleanSMS-v1.7.2-pre.1-nonprod-local-test.apk.sha256` from the GitHub Pre-Release assets.
    ```bash
-   sha256sum -c CleanSMS-v1.7.1-pre.1-nonprod-local-test.apk.sha256
+   sha256sum -c CleanSMS-v1.7.2-pre.1-nonprod-local-test.apk.sha256
    ```
-3. **Install / Upgrade on Local Android Device:**
+3. **Install / Upgrade on Local Android Test Device:**
    ```bash
-   adb install -r CleanSMS-v1.7.1-pre.1-nonprod-local-test.apk
+   adb install -r CleanSMS-v1.7.2-pre.1-nonprod-local-test.apk
    ```

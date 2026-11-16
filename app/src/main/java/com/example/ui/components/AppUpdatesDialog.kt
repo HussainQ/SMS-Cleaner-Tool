@@ -73,7 +73,7 @@ fun AppUpdatesDialog(
                 .heightIn(max = 680.dp),
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            border = BorderStroke(1.dp, CardBorder)
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f))
         ) {
             Column(
                 modifier = Modifier
@@ -92,8 +92,9 @@ fun AppUpdatesDialog(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         modifier = Modifier.weight(1f)
                     ) {
+                        val headerTint = if (isUpdateAvailable) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary
                         Surface(
-                            color = (if (isUpdateAvailable) TealAccent else CyanAccent).copy(alpha = 0.16f),
+                            color = headerTint.copy(alpha = 0.16f),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.size(40.dp)
                         ) {
@@ -101,7 +102,7 @@ fun AppUpdatesDialog(
                                 Icon(
                                     imageVector = if (isUpdateAvailable) Icons.Default.SystemUpdate else Icons.Default.Verified,
                                     contentDescription = null,
-                                    tint = if (isUpdateAvailable) TealAccent else CyanAccent,
+                                    tint = headerTint,
                                     modifier = Modifier.size(22.dp)
                                 )
                             }
@@ -151,7 +152,7 @@ fun AppUpdatesDialog(
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
                         shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, CardBorder.copy(alpha = 0.5f)),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(
@@ -173,7 +174,7 @@ fun AppUpdatesDialog(
                                         text = uiState.gitHubRepoSlug,
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = CyanAccent
+                                        color = MaterialTheme.colorScheme.primary
                                     )
                                 }
                                 TextButton(
@@ -211,7 +212,7 @@ fun AppUpdatesDialog(
                                 }
                             }
 
-                            HorizontalDivider(color = CardBorder.copy(alpha = 0.4f))
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
 
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -243,7 +244,7 @@ fun AppUpdatesDialog(
                     when (uiState.updateCheckStatus) {
                         UpdateCheckStatus.CHECKING -> {
                             Surface(
-                                color = CyanAccent.copy(alpha = 0.1f),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
                                 shape = RoundedCornerShape(14.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
@@ -255,7 +256,7 @@ fun AppUpdatesDialog(
                                     CircularProgressIndicator(
                                         modifier = Modifier.size(22.dp),
                                         strokeWidth = 2.5.dp,
-                                        color = CyanAccent
+                                        color = MaterialTheme.colorScheme.primary
                                     )
                                     Text(
                                         text = "Querying GitHub Releases for ${uiState.gitHubRepoSlug}...",
@@ -421,7 +422,7 @@ fun AppUpdatesDialog(
                                                         text = "${rel.tagName} • ${if (rel.isPrerelease) "Pre-Release" else "Stable"}",
                                                         fontSize = 12.sp,
                                                         fontWeight = FontWeight.Bold,
-                                                        color = CyanAccent
+                                                        color = MaterialTheme.colorScheme.primary
                                                     )
                                                     val previewBody = rel.releaseNotes
                                                         .lineSequence()
@@ -472,9 +473,9 @@ fun AppUpdatesDialog(
 
                         UpdateCheckStatus.UP_TO_DATE -> {
                             Surface(
-                                color = CyanAccent.copy(alpha = 0.1f),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
                                 shape = RoundedCornerShape(14.dp),
-                                border = BorderStroke(1.dp, CyanAccent.copy(alpha = 0.35f)),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .testTag("up_to_date_card")
@@ -609,66 +610,71 @@ fun AppUpdatesDialog(
                         downloadPhase == com.example.update.InAppUpdateInstallPhase.INSTALL_LAUNCHED) &&
                         !downloadState.apkFilePath.isNullOrBlank()
 
-                    Button(
-                        onClick = {
-                            when {
-                                isPermissionBlocked -> onRequestInstallPermission()
-                                isApkReady -> onTriggerInstall()
-                                hasApkForUpdate -> onDownloadAndInstall()
-                                else -> {
-                                    try {
-                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(fallbackWebUrl)).apply {
-                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        val btnContainer = when {
+                            isPermissionBlocked -> AmberAccent
+                            isApkReady || hasApkForUpdate -> MaterialTheme.colorScheme.secondary
+                            else -> MaterialTheme.colorScheme.primary
+                        }
+                        val btnContent = when {
+                            isPermissionBlocked -> Color.Black
+                            isApkReady || hasApkForUpdate -> MaterialTheme.colorScheme.onSecondary
+                            else -> MaterialTheme.colorScheme.onPrimary
+                        }
+                        Button(
+                            onClick = {
+                                when {
+                                    isPermissionBlocked -> onRequestInstallPermission()
+                                    isApkReady -> onTriggerInstall()
+                                    hasApkForUpdate -> onDownloadAndInstall()
+                                    else -> {
+                                        try {
+                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(fallbackWebUrl)).apply {
+                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            }
+                                            context.startActivity(intent)
+                                        } catch (_: Exception) {
+                                            onNotify("Unable to open browser for $fallbackWebUrl")
                                         }
-                                        context.startActivity(intent)
-                                    } catch (_: Exception) {
-                                        onNotify("Unable to open browser for $fallbackWebUrl")
                                     }
                                 }
-                            }
-                        },
-                        enabled = !isDownloading,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = when {
-                                isPermissionBlocked -> AmberAccent
-                                isApkReady || hasApkForUpdate -> TealAccent
-                                else -> CyanAccent
-                            }
-                        ),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .weight(1.35f)
-                            .height(48.dp)
-                            .testTag("pull_latest_release_btn")
-                    ) {
-                        Icon(
-                            imageVector = when {
-                                isPermissionBlocked -> Icons.Default.AdminPanelSettings
-                                isApkReady -> Icons.Default.InstallMobile
-                                hasApkForUpdate -> Icons.Default.Download
-                                else -> Icons.AutoMirrored.Filled.Launch
                             },
-                            contentDescription = null,
-                            tint = Navy900,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = when {
-                                isDownloading -> "Downloading..."
-                                isPermissionBlocked -> "Allow Install"
-                                isApkReady -> "Install APK"
-                                hasApkForUpdate -> "Download & Install"
-                                isUpdateAvailable -> "Open Release"
-                                else -> "GitHub Releases"
-                            },
-                            color = Navy900,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+                            enabled = !isDownloading,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = btnContainer,
+                                contentColor = btnContent
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .weight(1.35f)
+                                .height(48.dp)
+                                .testTag("pull_latest_release_btn")
+                        ) {
+                            Icon(
+                                imageVector = when {
+                                    isPermissionBlocked -> Icons.Default.AdminPanelSettings
+                                    isApkReady -> Icons.Default.InstallMobile
+                                    hasApkForUpdate -> Icons.Default.Download
+                                    else -> Icons.AutoMirrored.Filled.Launch
+                                },
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = when {
+                                    isDownloading -> "Downloading..."
+                                    isPermissionBlocked -> "Allow Install"
+                                    isApkReady -> "Install APK"
+                                    hasApkForUpdate -> "Download & Install"
+                                    isUpdateAvailable -> "Open Release"
+                                    else -> "GitHub Releases"
+                                },
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                 }
             }
         }
@@ -688,15 +694,15 @@ private fun InAppUpdateDownloadCard(
         com.example.update.InAppUpdateInstallPhase.FAILED -> Color(0xFFEF5350).copy(alpha = 0.12f)
         com.example.update.InAppUpdateInstallPhase.PERMISSION_REQUIRED -> AmberAccent.copy(alpha = 0.14f)
         com.example.update.InAppUpdateInstallPhase.READY_TO_INSTALL,
-        com.example.update.InAppUpdateInstallPhase.INSTALL_LAUNCHED -> TealAccent.copy(alpha = 0.14f)
-        else -> CyanAccent.copy(alpha = 0.12f)
+        com.example.update.InAppUpdateInstallPhase.INSTALL_LAUNCHED -> MaterialTheme.colorScheme.secondary.copy(alpha = 0.14f)
+        else -> MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
     }
     val borderColor = when (phase) {
         com.example.update.InAppUpdateInstallPhase.FAILED -> Color(0xFFEF5350).copy(alpha = 0.45f)
         com.example.update.InAppUpdateInstallPhase.PERMISSION_REQUIRED -> AmberAccent.copy(alpha = 0.5f)
         com.example.update.InAppUpdateInstallPhase.READY_TO_INSTALL,
-        com.example.update.InAppUpdateInstallPhase.INSTALL_LAUNCHED -> TealAccent.copy(alpha = 0.5f)
-        else -> CyanAccent.copy(alpha = 0.45f)
+        com.example.update.InAppUpdateInstallPhase.INSTALL_LAUNCHED -> MaterialTheme.colorScheme.secondary.copy(alpha = 0.5f)
+        else -> MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
     }
 
     Surface(
@@ -735,7 +741,7 @@ private fun InAppUpdateDownloadCard(
                             },
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp,
-                            color = CyanAccent,
+                            color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.testTag("download_status_text")
                         )
                         Text(
@@ -753,7 +759,7 @@ private fun InAppUpdateDownloadCard(
                                 .fillMaxWidth()
                                 .height(6.dp)
                                 .testTag("update_download_progress_bar"),
-                            color = CyanAccent
+                            color = MaterialTheme.colorScheme.primary
                         )
                     } else {
                         LinearProgressIndicator(
@@ -761,7 +767,7 @@ private fun InAppUpdateDownloadCard(
                                 .fillMaxWidth()
                                 .height(6.dp)
                                 .testTag("update_download_progress_bar"),
-                            color = CyanAccent
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
 
@@ -802,16 +808,16 @@ private fun InAppUpdateDownloadCard(
                     )
                     Button(
                         onClick = onRequestInstallPermission,
-                        colors = ButtonDefaults.buttonColors(containerColor = AmberAccent),
+                        colors = ButtonDefaults.buttonColors(containerColor = AmberAccent, contentColor = Color.Black),
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(44.dp)
                             .testTag("grant_install_permission_btn")
                     ) {
-                        Icon(Icons.Default.AdminPanelSettings, contentDescription = null, tint = Navy900, modifier = Modifier.size(16.dp))
+                        Icon(Icons.Default.AdminPanelSettings, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Allow App Installs", color = Navy900, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Text("Allow App Installs", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
                 }
 
@@ -821,7 +827,7 @@ private fun InAppUpdateDownloadCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(Icons.Default.Verified, contentDescription = null, tint = TealAccent, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.Verified, contentDescription = null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(18.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = if (phase == com.example.update.InAppUpdateInstallPhase.INSTALL_LAUNCHED) {
@@ -831,7 +837,7 @@ private fun InAppUpdateDownloadCard(
                                 },
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp,
-                                color = TealAccent
+                                color = MaterialTheme.colorScheme.secondary
                             )
                             Text(
                                 text = buildString {
@@ -848,16 +854,19 @@ private fun InAppUpdateDownloadCard(
 
                     Button(
                         onClick = onTriggerInstall,
-                        colors = ButtonDefaults.buttonColors(containerColor = TealAccent),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.secondary,
+                            contentColor = MaterialTheme.colorScheme.onSecondary
+                        ),
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(44.dp)
                             .testTag("install_downloaded_apk_btn")
                     ) {
-                        Icon(Icons.Default.InstallMobile, contentDescription = null, tint = Navy900, modifier = Modifier.size(16.dp))
+                        Icon(Icons.Default.InstallMobile, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Install Downloaded APK", color = Navy900, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Text("Install Downloaded APK", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
                 }
 

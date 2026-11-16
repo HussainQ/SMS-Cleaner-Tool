@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.os.Bundle
 import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -14,6 +15,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -54,9 +56,7 @@ import com.example.ui.screens.RulesAndCloudScreen
 import com.example.ui.screens.ScannerScreen
 import com.example.ui.screens.VaultRestoreScreen
 import com.example.ui.theme.CleanSMSTheme
-import com.example.ui.theme.CyanAccent
-import com.example.ui.theme.Navy900
-import com.example.ui.theme.TealAccent
+import com.example.ui.theme.LocalCleanSmsThemeManaged
 import java.io.File
 
 enum class NavigationTab(val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
@@ -81,11 +81,45 @@ class MainActivity : ComponentActivity() {
         captureIncomingSendIntent(intent)
 
         setContent {
-            CleanSMSTheme {
+            val mainViewModel: CleanSmsViewModel = viewModel(
+                factory = CleanSmsViewModel.Factory(application)
+            )
+            val uiState by mainViewModel.uiState.collectAsStateWithLifecycle()
+            val systemDark = isSystemInDarkTheme()
+            val effectiveDark = if (uiState.useDeviceMaterialTheme) systemDark else true
+
+            SideEffect {
+                enableEdgeToEdge(
+                    statusBarStyle = if (effectiveDark) {
+                        SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                    } else {
+                        SystemBarStyle.light(
+                            android.graphics.Color.TRANSPARENT,
+                            android.graphics.Color.TRANSPARENT
+                        )
+                    },
+                    navigationBarStyle = if (effectiveDark) {
+                        SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                    } else {
+                        SystemBarStyle.light(
+                            android.graphics.Color.TRANSPARENT,
+                            android.graphics.Color.TRANSPARENT
+                        )
+                    }
+                )
+            }
+
+            CleanSMSTheme(
+                useDeviceMaterialTheme = uiState.useDeviceMaterialTheme,
+                darkTheme = effectiveDark,
+                dynamicColor = uiState.useDeviceMaterialTheme,
+                themeManaged = true
+            ) {
                 CleanSmsApp(
                     windowFocusSyncTrigger = windowFocusSyncTrigger,
                     externalSendIntent = pendingSendIntentPayload,
-                    externalSendIntentSequence = sendIntentSequence
+                    externalSendIntentSequence = sendIntentSequence,
+                    viewModel = mainViewModel
                 )
             }
         }
@@ -469,6 +503,7 @@ fun CleanSmsApp(
     val cleanableCount = uiState.summary.allCleanableCount
     val quarantinedCount = uiState.quarantinedMessages.size
 
+    AdaptiveCleanSmsThemeIfUnmanaged(useDeviceMaterialTheme = uiState.useDeviceMaterialTheme) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val isWideScreen = maxWidth >= 720.dp
 
@@ -485,13 +520,13 @@ fun CleanSmsApp(
                             modifier = Modifier
                                 .size(42.dp)
                                 .clip(CircleShape),
-                            color = CyanAccent
+                            color = MaterialTheme.colorScheme.primary
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     imageVector = Icons.Default.CleaningServices,
                                     contentDescription = "Logo",
-                                    tint = Navy900,
+                                    tint = MaterialTheme.colorScheme.onPrimary,
                                     modifier = Modifier.size(24.dp)
                                 )
                             }
@@ -516,8 +551,16 @@ fun CleanSmsApp(
                                     badge = {
                                         if (badgeCount > 0) {
                                             Badge(
-                                                containerColor = if (tab == NavigationTab.VAULT) TealAccent else CyanAccent,
-                                                contentColor = Color.Black
+                                                containerColor = if (tab == NavigationTab.VAULT) {
+                                                    MaterialTheme.colorScheme.secondary
+                                                } else {
+                                                    MaterialTheme.colorScheme.primary
+                                                },
+                                                contentColor = if (tab == NavigationTab.VAULT) {
+                                                    MaterialTheme.colorScheme.onSecondary
+                                                } else {
+                                                    MaterialTheme.colorScheme.onPrimary
+                                                }
                                             ) {
                                                 Text(badgeCount.toString(), fontWeight = FontWeight.Bold)
                                             }
@@ -540,7 +583,7 @@ fun CleanSmsApp(
                             .padding(bottom = 16.dp)
                             .testTag("rail_refresh_button")
                     ) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Rescan", tint = CyanAccent)
+                        Icon(Icons.Default.Refresh, contentDescription = "Rescan", tint = MaterialTheme.colorScheme.primary)
                     }
                 }
 
@@ -550,6 +593,7 @@ fun CleanSmsApp(
                     modifier = Modifier.weight(1f),
                     snackbarHost = { SnackbarHost(snackbarHostState) },
                     topBar = {
+                        val isPreReleaseBuild = BuildConfig.VERSION_NAME.contains("-")
                         TopAppBar(
                             title = {
                                 Column {
@@ -563,17 +607,33 @@ fun CleanSmsApp(
                                             fontSize = 18.sp
                                         )
                                         Surface(
-                                            color = Color(0xFFFFB300).copy(alpha = 0.16f),
+                                            color = if (isPreReleaseBuild) {
+                                                Color(0xFFFFB300).copy(alpha = 0.16f)
+                                            } else {
+                                                MaterialTheme.colorScheme.primaryContainer
+                                            },
                                             shape = CircleShape,
                                             border = androidx.compose.foundation.BorderStroke(
                                                 1.dp,
-                                                Color(0xFFFFB300).copy(alpha = 0.5f)
+                                                if (isPreReleaseBuild) {
+                                                    Color(0xFFFFB300).copy(alpha = 0.5f)
+                                                } else {
+                                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+                                                }
                                             ),
                                             modifier = Modifier.testTag("prerelease_badge_wide")
                                         ) {
                                             Text(
-                                                text = "PRE-RELEASE v${BuildConfig.VERSION_NAME} • LOCAL TEST ONLY",
-                                                color = Color(0xFFFFB300),
+                                                text = if (isPreReleaseBuild) {
+                                                    "PRE-RELEASE v${BuildConfig.VERSION_NAME} • LOCAL TEST ONLY"
+                                                } else {
+                                                    "v${BuildConfig.VERSION_NAME}"
+                                                },
+                                                color = if (isPreReleaseBuild) {
+                                                    Color(0xFFFFB300)
+                                                } else {
+                                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                                },
                                                 fontSize = 10.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
@@ -581,7 +641,11 @@ fun CleanSmsApp(
                                         }
                                     }
                                     Text(
-                                        text = "Non-Production Build • For Local Device Testing Only",
+                                        text = if (isPreReleaseBuild) {
+                                            "Non-Production Build • For Local Device Testing Only"
+                                        } else {
+                                            "Intelligent SMS, MMS & RCS Organizer"
+                                        },
                                         fontSize = 12.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -596,7 +660,10 @@ fun CleanSmsApp(
                                     BadgedBox(
                                         badge = {
                                             if (hasUpdate) {
-                                                Badge(containerColor = TealAccent, contentColor = Navy900) {
+                                                Badge(
+                                                    containerColor = MaterialTheme.colorScheme.secondary,
+                                                    contentColor = MaterialTheme.colorScheme.onSecondary
+                                                ) {
                                                     Text("!", fontWeight = FontWeight.Bold)
                                                 }
                                             }
@@ -605,7 +672,7 @@ fun CleanSmsApp(
                                         Icon(
                                             imageVector = if (hasUpdate) Icons.Default.SystemUpdate else Icons.Default.Update,
                                             contentDescription = "Check for GitHub Updates",
-                                            tint = if (hasUpdate) TealAccent else MaterialTheme.colorScheme.onSurface
+                                            tint = if (hasUpdate) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface
                                         )
                                     }
                                 }
@@ -644,6 +711,7 @@ fun CleanSmsApp(
                 topBar = {
                     TopAppBar(
                         title = {
+                            val isPreReleaseBuild = BuildConfig.VERSION_NAME.contains("-")
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -652,13 +720,13 @@ fun CleanSmsApp(
                                     modifier = Modifier
                                         .size(34.dp)
                                         .clip(CircleShape),
-                                    color = CyanAccent
+                                    color = MaterialTheme.colorScheme.primary
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
                                         Icon(
                                             imageVector = Icons.Default.CleaningServices,
                                             contentDescription = "Logo",
-                                            tint = Navy900,
+                                            tint = MaterialTheme.colorScheme.onPrimary,
                                             modifier = Modifier.size(20.dp)
                                         )
                                     }
@@ -674,17 +742,33 @@ fun CleanSmsApp(
                                             fontSize = 18.sp
                                         )
                                         Surface(
-                                            color = Color(0xFFFFB300).copy(alpha = 0.16f),
+                                            color = if (isPreReleaseBuild) {
+                                                Color(0xFFFFB300).copy(alpha = 0.16f)
+                                            } else {
+                                                MaterialTheme.colorScheme.primaryContainer
+                                            },
                                             shape = CircleShape,
                                             border = androidx.compose.foundation.BorderStroke(
                                                 1.dp,
-                                                Color(0xFFFFB300).copy(alpha = 0.5f)
+                                                if (isPreReleaseBuild) {
+                                                    Color(0xFFFFB300).copy(alpha = 0.5f)
+                                                } else {
+                                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+                                                }
                                             ),
                                             modifier = Modifier.testTag("prerelease_badge_compact")
                                         ) {
                                             Text(
-                                                text = "PRE v${BuildConfig.VERSION_NAME}",
-                                                color = Color(0xFFFFB300),
+                                                text = if (isPreReleaseBuild) {
+                                                    "PRE v${BuildConfig.VERSION_NAME}"
+                                                } else {
+                                                    "v${BuildConfig.VERSION_NAME}"
+                                                },
+                                                color = if (isPreReleaseBuild) {
+                                                    Color(0xFFFFB300)
+                                                } else {
+                                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                                },
                                                 fontSize = 9.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
@@ -692,7 +776,11 @@ fun CleanSmsApp(
                                         }
                                     }
                                     Text(
-                                        text = "Non-Production • Local Device Testing",
+                                        text = if (isPreReleaseBuild) {
+                                            "Non-Production • Local Device Testing"
+                                        } else {
+                                            "SMS, MMS & RCS Organizer"
+                                        },
                                         fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -708,7 +796,10 @@ fun CleanSmsApp(
                                 BadgedBox(
                                     badge = {
                                         if (hasUpdate) {
-                                            Badge(containerColor = TealAccent, contentColor = Navy900) {
+                                            Badge(
+                                                containerColor = MaterialTheme.colorScheme.secondary,
+                                                contentColor = MaterialTheme.colorScheme.onSecondary
+                                            ) {
                                                 Text("!", fontWeight = FontWeight.Bold)
                                             }
                                         }
@@ -717,7 +808,7 @@ fun CleanSmsApp(
                                     Icon(
                                         imageVector = if (hasUpdate) Icons.Default.SystemUpdate else Icons.Default.Update,
                                         contentDescription = "Check for GitHub Updates",
-                                        tint = if (hasUpdate) TealAccent else MaterialTheme.colorScheme.onSurface
+                                        tint = if (hasUpdate) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface
                                     )
                                 }
                             }
@@ -754,8 +845,16 @@ fun CleanSmsApp(
                                         badge = {
                                             if (badgeCount > 0) {
                                                 Badge(
-                                                    containerColor = if (tab == NavigationTab.VAULT) TealAccent else CyanAccent,
-                                                    contentColor = Color.Black
+                                                    containerColor = if (tab == NavigationTab.VAULT) {
+                                                        MaterialTheme.colorScheme.secondary
+                                                    } else {
+                                                        MaterialTheme.colorScheme.primary
+                                                    },
+                                                    contentColor = if (tab == NavigationTab.VAULT) {
+                                                        MaterialTheme.colorScheme.onSecondary
+                                                    } else {
+                                                        MaterialTheme.colorScheme.onPrimary
+                                                    }
                                                 ) {
                                                     Text(badgeCount.toString(), fontWeight = FontWeight.Bold)
                                                 }
@@ -929,6 +1028,23 @@ fun CleanSmsApp(
             onRequestInstallPermission = requestUnknownAppInstallPermissionAction,
             onNotify = { viewModel.showSnackbar(it) },
             onDismiss = { viewModel.dismissUpdatesDialog() }
+        )
+    }
+    }
+}
+
+@Composable
+private fun AdaptiveCleanSmsThemeIfUnmanaged(
+    useDeviceMaterialTheme: Boolean,
+    content: @Composable () -> Unit
+) {
+    if (LocalCleanSmsThemeManaged.current) {
+        content()
+    } else {
+        CleanSMSTheme(
+            useDeviceMaterialTheme = useDeviceMaterialTheme,
+            themeManaged = true,
+            content = content
         )
     }
 }

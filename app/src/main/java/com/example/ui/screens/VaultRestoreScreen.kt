@@ -255,7 +255,7 @@ fun VaultRestoreScreen(
                     shape = RoundedCornerShape(10.dp),
                     border = BorderStroke(
                         1.dp,
-                        if (uiState.testingRestoreDeletedEnabled) AmberAccent.copy(alpha = 0.4f) else CardBorder.copy(alpha = 0.3f)
+                        if (uiState.testingRestoreDeletedEnabled) AmberAccent.copy(alpha = 0.4f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
                     ),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -717,9 +717,9 @@ private fun VaultMessageList(
 
                 item(key = "header_${if (isDeletedTest) "del" else "quar"}_$groupKey") {
                     Surface(
-                        color = CyanAccent.copy(alpha = 0.1f),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
                         shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, CyanAccent.copy(alpha = 0.35f)),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("vault_group_header_$groupKey")
@@ -738,7 +738,7 @@ private fun VaultMessageList(
                             ) {
                                 Surface(
                                     shape = CircleShape,
-                                    color = CyanAccent.copy(alpha = 0.22f),
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.22f),
                                     modifier = Modifier.size(28.dp)
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
@@ -746,7 +746,7 @@ private fun VaultMessageList(
                                             text = senderTitle.firstOrNull()?.uppercase() ?: "?",
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 12.sp,
-                                            color = CyanAccent
+                                            color = MaterialTheme.colorScheme.primary
                                         )
                                     }
                                 }
@@ -776,7 +776,7 @@ private fun VaultMessageList(
                                     text = if (allInGroupSelected) "Unselect" else "Select Group",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = CyanAccent
+                                    color = MaterialTheme.colorScheme.primary
                                 )
                             }
                         }

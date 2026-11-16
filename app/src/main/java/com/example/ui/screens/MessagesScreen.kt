@@ -190,6 +190,8 @@ fun MessagesScreen(
         MessagesSettingsDialog(
             compactMessagesUi = uiState.compactMessagesUi,
             onCompactChange = { viewModel.setCompactMessagesUi(it) },
+            useDeviceMaterialTheme = uiState.useDeviceMaterialTheme,
+            onUseDeviceMaterialThemeChange = { viewModel.setUseDeviceMaterialTheme(it) },
             onDismiss = { viewModel.dismissMessagesSettingsDialog() }
         )
     }
@@ -240,8 +242,8 @@ private fun ConversationListPane(
             if (compactMode) {
                 FloatingActionButton(
                     onClick = onNewMessageClick,
-                    containerColor = CyanAccent,
-                    contentColor = Navy900,
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
                     modifier = Modifier.testTag("new_message_fab")
                 ) {
                     Icon(Icons.Default.Edit, contentDescription = "Compose new message")
@@ -249,8 +251,8 @@ private fun ConversationListPane(
             } else {
                 ExtendedFloatingActionButton(
                     onClick = onNewMessageClick,
-                    containerColor = CyanAccent,
-                    contentColor = Navy900,
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
                     icon = { Icon(Icons.Default.Edit, contentDescription = "Compose new message") },
                     text = { Text("New Message", fontWeight = FontWeight.Bold) },
                     modifier = Modifier.testTag("new_message_fab")
@@ -319,10 +321,10 @@ private fun ConversationListPane(
                 // Direct 1-tap Compact UI Toggle synced with Settings
                 Surface(
                     shape = RoundedCornerShape(if (compactMode) 12.dp else 14.dp),
-                    color = if (compactMode) CyanAccent.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surface,
+                    color = if (compactMode) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surface,
                     border = BorderStroke(
                         width = if (compactMode) 1.3.dp else 1.dp,
-                        color = if (compactMode) CyanAccent else MaterialTheme.colorScheme.outline.copy(alpha = 0.28f)
+                        color = if (compactMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.28f)
                     ),
                     modifier = Modifier
                         .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
@@ -341,14 +343,14 @@ private fun ConversationListPane(
                         Icon(
                             imageVector = if (compactMode) Icons.Default.Compress else Icons.Default.ViewAgenda,
                             contentDescription = if (compactMode) "Compact UI On" else "Compact UI Off",
-                            tint = if (compactMode) CyanAccent else MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = if (compactMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
                             text = "Compact",
                             fontSize = 11.sp,
                             fontWeight = if (compactMode) FontWeight.Bold else FontWeight.Medium,
-                            color = if (compactMode) CyanAccent else MaterialTheme.colorScheme.onSurfaceVariant
+                            color = if (compactMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -367,7 +369,7 @@ private fun ConversationListPane(
                         Icon(
                             imageVector = Icons.Default.Tune,
                             contentDescription = "Messaging display settings",
-                            tint = CyanAccent
+                            tint = MaterialTheme.colorScheme.primary
                         )
                     }
                 }
@@ -387,7 +389,7 @@ private fun ConversationListPane(
                     label = "Inbox",
                     icon = Icons.Default.Inbox,
                     selected = uiState.messagesFolderFilter == MessageFolderFilter.INBOX,
-                    accentColor = CyanAccent,
+                    accentColor = MaterialTheme.colorScheme.primary,
                     compactMode = compactMode,
                     onClick = { onFolderFilterSelect(MessageFolderFilter.INBOX) },
                     testTag = "messages_folder_inbox"
@@ -401,7 +403,7 @@ private fun ConversationListPane(
                     label = archivedLabel,
                     icon = Icons.Default.Archive,
                     selected = uiState.messagesFolderFilter == MessageFolderFilter.ARCHIVED,
-                    accentColor = TealAccent,
+                    accentColor = MaterialTheme.colorScheme.secondary,
                     compactMode = compactMode,
                     onClick = { onFolderFilterSelect(MessageFolderFilter.ARCHIVED) },
                     testTag = "messages_folder_archived"
@@ -435,7 +437,7 @@ private fun ConversationListPane(
                 ProtocolFilterChipItem(
                     label = "All",
                     selected = uiState.messagesProtocolFilter == null,
-                    accentColor = CyanAccent,
+                    accentColor = MaterialTheme.colorScheme.primary,
                     compactMode = compactMode,
                     onClick = { onProtocolFilterSelect(null) },
                     testTag = "messages_filter_all"
@@ -720,7 +722,7 @@ private fun MessagingStatusStrip(
                 Icon(
                     imageVector = if (isDefaultSmsApp) Icons.Default.Verified else Icons.Default.Sms,
                     contentDescription = "Messaging status",
-                    tint = if (isDefaultSmsApp) TealAccent else CyanAccent,
+                    tint = if (isDefaultSmsApp) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(if (compactMode) 15.dp else 18.dp)
                 )
                 val statusTitle = when {
@@ -749,7 +751,7 @@ private fun MessagingStatusStrip(
                             Text(
                                 text = "$unreadCount unread conversation${if (unreadCount == 1) "" else "s"}",
                                 fontSize = 11.sp,
-                                color = CyanAccent
+                                color = MaterialTheme.colorScheme.primary
                             )
                         }
                     }
@@ -788,8 +790,8 @@ private fun ConversationThreadRow(
     val protocolColor = Color(thread.protocol.badgeColorHex)
     val isUnread = thread.unreadCount > 0
     val cardBorder = when {
-        isSelected -> BorderStroke(1.5.dp, CyanAccent)
-        isUnread -> BorderStroke(1.dp, CyanAccent.copy(alpha = 0.45f))
+        isSelected -> BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+        isUnread -> BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f))
         else -> BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.22f))
     }
 
@@ -852,7 +854,7 @@ private fun ConversationThreadRow(
                     Text(
                         text = formatShortTimestamp(thread.lastMessage.date),
                         fontSize = if (compactMode) 10.sp else 11.sp,
-                        color = if (isUnread) CyanAccent else MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = if (isUnread) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = if (isUnread) FontWeight.Bold else FontWeight.Normal
                     )
                 }
@@ -940,8 +942,8 @@ private fun ConversationThreadRow(
 
             if (isUnread) {
                 Badge(
-                    containerColor = CyanAccent,
-                    contentColor = Navy900,
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
                     modifier = Modifier.testTag("unread_badge_${thread.threadKey}")
                 ) {
                     Text(
@@ -1299,7 +1301,7 @@ private fun ConversationDetailPane(
                         Icon(
                             imageVector = Icons.Default.AddPhotoAlternate,
                             contentDescription = "Attach image for MMS",
-                            tint = CyanAccent
+                            tint = MaterialTheme.colorScheme.primary
                         )
                     }
 
@@ -1328,8 +1330,8 @@ private fun ConversationDetailPane(
                         onClick = { viewModel.sendCurrentMessage() },
                         enabled = canSend,
                         colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = CyanAccent,
-                            contentColor = Navy900
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
                         ),
                         modifier = Modifier
                             .size(48.dp)
@@ -1339,7 +1341,7 @@ private fun ConversationDetailPane(
                             CircularProgressIndicator(
                                 modifier = Modifier.size(20.dp),
                                 strokeWidth = 2.dp,
-                                color = Navy900
+                                color = MaterialTheme.colorScheme.onPrimary
                             )
                         } else {
                             Icon(
@@ -1571,14 +1573,14 @@ private fun EmptyConversationDetailPlaceholder(
         ) {
             Surface(
                 shape = CircleShape,
-                color = CyanAccent.copy(alpha = 0.14f),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
                 modifier = Modifier.size(64.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = Icons.Default.Forum,
                         contentDescription = "Select conversation",
-                        tint = CyanAccent,
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(32.dp)
                     )
                 }
@@ -1720,6 +1722,8 @@ private fun NewMessageRecipientDialog(
 private fun MessagesSettingsDialog(
     compactMessagesUi: Boolean,
     onCompactChange: (Boolean) -> Unit,
+    useDeviceMaterialTheme: Boolean,
+    onUseDeviceMaterialThemeChange: (Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
     Dialog(onDismissRequest = onDismiss) {
@@ -1744,7 +1748,7 @@ private fun MessagesSettingsDialog(
                     Icon(
                         imageVector = Icons.Default.Tune,
                         contentDescription = null,
-                        tint = CyanAccent
+                        tint = MaterialTheme.colorScheme.primary
                     )
                     Text(
                         text = "Messages Display Settings",
@@ -1754,10 +1758,42 @@ private fun MessagesSettingsDialog(
                 }
 
                 Text(
-                    text = "Adjust layout spacing and conversation density for SMS, MMS, and RCS threads. Also synced with Rules & Cloud Settings.",
+                    text = "Adjust layout density and theme appearance for SMS, MMS, and RCS threads. Synced with Rules & Cloud Settings.",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Use Device Material UI",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 14.sp
+                            )
+                            Text(
+                                text = if (useDeviceMaterialTheme) "Following device Dark/Light & Material You palette" else "Using Classic CleanSMS Navy & Cyan theme",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = useDeviceMaterialTheme,
+                            onCheckedChange = onUseDeviceMaterialThemeChange,
+                            modifier = Modifier.testTag("messages_dialog_device_material_theme_switch")
+                        )
+                    }
+                }
 
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
@@ -1797,10 +1833,10 @@ private fun MessagesSettingsDialog(
                 ) {
                     Surface(
                         shape = RoundedCornerShape(12.dp),
-                        color = if (compactMessagesUi) CyanAccent.copy(alpha = 0.16f) else MaterialTheme.colorScheme.background,
+                        color = if (compactMessagesUi) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else MaterialTheme.colorScheme.background,
                         border = BorderStroke(
                             width = if (compactMessagesUi) 1.5.dp else 1.dp,
-                            color = if (compactMessagesUi) CyanAccent else MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+                            color = if (compactMessagesUi) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
                         ),
                         modifier = Modifier
                             .weight(1f)
@@ -1815,7 +1851,7 @@ private fun MessagesSettingsDialog(
                                 text = "Compact",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp,
-                                color = if (compactMessagesUi) CyanAccent else MaterialTheme.colorScheme.onSurface
+                                color = if (compactMessagesUi) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                             )
                             Text(
                                 text = "Slimmer rows & 1-line previews",
@@ -1827,10 +1863,10 @@ private fun MessagesSettingsDialog(
 
                     Surface(
                         shape = RoundedCornerShape(12.dp),
-                        color = if (!compactMessagesUi) CyanAccent.copy(alpha = 0.16f) else MaterialTheme.colorScheme.background,
+                        color = if (!compactMessagesUi) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else MaterialTheme.colorScheme.background,
                         border = BorderStroke(
                             width = if (!compactMessagesUi) 1.5.dp else 1.dp,
-                            color = if (!compactMessagesUi) CyanAccent else MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+                            color = if (!compactMessagesUi) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
                         ),
                         modifier = Modifier
                             .weight(1f)
@@ -1845,7 +1881,7 @@ private fun MessagesSettingsDialog(
                                 text = "Comfortable",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp,
-                                color = if (!compactMessagesUi) CyanAccent else MaterialTheme.colorScheme.onSurface
+                                color = if (!compactMessagesUi) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                             )
                             Text(
                                 text = "Larger avatars & 2-line previews",
@@ -1862,10 +1898,13 @@ private fun MessagesSettingsDialog(
                 ) {
                     Button(
                         onClick = onDismiss,
-                        colors = ButtonDefaults.buttonColors(containerColor = CyanAccent),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        ),
                         modifier = Modifier.testTag("messages_settings_close_btn")
                     ) {
-                        Text("Done", color = Navy900, fontWeight = FontWeight.Bold)
+                        Text("Done", fontWeight = FontWeight.Bold)
                     }
                 }
             }

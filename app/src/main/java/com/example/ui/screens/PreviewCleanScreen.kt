@@ -241,7 +241,7 @@ fun PreviewCleanScreen(
                         Icon(
                             imageVector = Icons.Default.Search,
                             contentDescription = "Search",
-                            tint = if (searchInput.isNotBlank()) CyanAccent else MaterialTheme.colorScheme.onSurfaceVariant
+                            tint = if (searchInput.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     },
                     trailingIcon = {
@@ -283,7 +283,7 @@ fun PreviewCleanScreen(
                     singleLine = true,
                     shape = RoundedCornerShape(14.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = CyanAccent,
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
                         unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
                         focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
                         unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
@@ -322,12 +322,12 @@ fun PreviewCleanScreen(
                             },
                             label = { Text(tag, fontSize = 11.sp) },
                             colors = SuggestionChipDefaults.suggestionChipColors(
-                                containerColor = if (isCurrentSearch) CyanAccent.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                                labelColor = if (isCurrentSearch) CyanAccent else MaterialTheme.colorScheme.onSurface
+                                containerColor = if (isCurrentSearch) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                labelColor = if (isCurrentSearch) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
                             ),
                             border = SuggestionChipDefaults.suggestionChipBorder(
                                 enabled = true,
-                                borderColor = if (isCurrentSearch) CyanAccent else Color.Transparent
+                                borderColor = if (isCurrentSearch) MaterialTheme.colorScheme.primary else Color.Transparent
                             ),
                             shape = RoundedCornerShape(8.dp),
                             modifier = Modifier.testTag("quick_search_$tag")
@@ -611,7 +611,10 @@ fun PreviewCleanScreen(
                 Button(
                     onClick = { viewModel.quarantineSelectedMessages() },
                     enabled = selectedCount > 0,
-                    colors = ButtonDefaults.buttonColors(containerColor = CyanAccent),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
                         .weight(1f)
@@ -621,13 +624,11 @@ fun PreviewCleanScreen(
                     Icon(
                         Icons.Default.Shield,
                         contentDescription = null,
-                        tint = Navy900,
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "Quarantine ($selectedCount)",
-                        color = Navy900,
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp
                     )

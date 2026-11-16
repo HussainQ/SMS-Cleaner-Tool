@@ -8,8 +8,13 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+
+val LocalCleanSmsThemeManaged = staticCompositionLocalOf { false }
+val LocalUseDeviceMaterialTheme = staticCompositionLocalOf { false }
 
 private val DarkColorScheme = darkColorScheme(
     primary = CyanAccent,
@@ -18,7 +23,10 @@ private val DarkColorScheme = darkColorScheme(
     onPrimaryContainer = CyanAccent,
     secondary = TealAccent,
     onSecondary = Navy900,
+    secondaryContainer = Navy700,
+    onSecondaryContainer = TealAccent,
     tertiary = PurpleAccent,
+    onTertiary = Color.White,
     background = SurfaceDark,
     surface = CardDark,
     onBackground = TextPrimary,
@@ -34,10 +42,13 @@ private val LightColorScheme = lightColorScheme(
     primary = PrimaryBlue,
     onPrimary = Color.White,
     primaryContainer = Color(0xFFDBEAFE),
-    onPrimaryContainer = PrimaryBlue,
-    secondary = TealAccent,
+    onPrimaryContainer = Color(0xFF1E3A8A),
+    secondary = Color(0xFF0D9488),
     onSecondary = Color.White,
+    secondaryContainer = Color(0xFFCCFBF1),
+    onSecondaryContainer = Color(0xFF115E59),
     tertiary = PurpleAccent,
+    onTertiary = Color.White,
     background = SurfaceLight,
     surface = CardLight,
     onBackground = Color(0xFF0F172A),
@@ -51,8 +62,10 @@ private val LightColorScheme = lightColorScheme(
 
 @Composable
 fun CleanSMSTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = false,
+    useDeviceMaterialTheme: Boolean = false,
+    darkTheme: Boolean = if (useDeviceMaterialTheme) isSystemInDarkTheme() else true,
+    dynamicColor: Boolean = useDeviceMaterialTheme,
+    themeManaged: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {
@@ -61,12 +74,17 @@ fun CleanSMSTheme(
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
         darkTheme -> DarkColorScheme
-        else -> DarkColorScheme // Clean modern dark theme default fits utility & safety tools best
+        else -> LightColorScheme
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography,
-        content = content
-    )
+    CompositionLocalProvider(
+        LocalCleanSmsThemeManaged provides themeManaged,
+        LocalUseDeviceMaterialTheme provides useDeviceMaterialTheme
+    ) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = Typography,
+            content = content
+        )
+    }
 }

@@ -8,16 +8,16 @@
 [![Min SDK](https://img.shields.io/badge/Min%20SDK-24%20(Android%207.0)-informational?style=flat-square)](https://developer.android.com/about/versions)
 [![Target SDK](https://img.shields.io/badge/Target%20SDK-36%20(Android%2016)-success?style=flat-square)](https://developer.android.com/about/versions)
 [![Privacy](https://img.shields.io/badge/Privacy-100%25%20On--Device-success?style=flat-square&logo=shield)](https://github.com/HussainQ/SMS-Cleaner-Tool)
-[![Pre-Release](https://img.shields.io/badge/Pre--Release-v1.7.1--pre.1%20(Local%20Test%20Only)-amber?style=flat-square)](https://github.com/HussainQ/SMS-Cleaner-Tool/releases)
+[![Pre-Release](https://img.shields.io/badge/Pre--Release-v1.7.2--pre.1%20(Local%20Test%20Only)-orange?style=flat-square)](https://github.com/HussainQ/SMS-Cleaner-Tool/releases)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue?style=flat-square)](LICENSE)
 
-> [!WARNING]
-> **Current Pre-Release (`v1.7.1-pre.1`) — Non-Production / Local Device Testing Only**:
-> This repository's active pre-release (`v1.7.1-pre.1`, `versionCode = 10701`) is designated strictly for **non-production evaluation and testing on a local Android device**. See [`RELEASE_NOTES.md`](RELEASE_NOTES.md), [GitHub Releases](https://github.com/HussainQ/SMS-Cleaner-Tool/releases), and [`.github/workflows/prerelease.yml`](.github/workflows/prerelease.yml) for full details and SHA-256 verification.
+> [!NOTE]
+> **Current Pre-Release (`v1.7.2-pre.1`, `versionCode = 10702`)**:
+> Non-production local testing pre-release from [`HussainQ/SMS-Cleaner-Tool/releases`](https://github.com/HussainQ/SMS-Cleaner-Tool/releases). See [`RELEASE_NOTES.md`](RELEASE_NOTES.md) and [`.github/workflows/prerelease.yml`](.github/workflows/prerelease.yml) for pre-release artifacts and SHA-256 verification.
 
 > [!IMPORTANT]
 > **Upgrading from Older Releases (One-Time Uninstall Required for Legacy Package IDs):**
-> CleanSMS uses the locked Application ID **`com.aistudio.cleansms.jrvxpq`** with persistent CI signing so updates from `v1.6.1-pre.1`, `v1.6.2-pre.1`, and `v1.7.0-pre.1` to `v1.7.1-pre.1` install in-place cleanly. If your device has a pre-`1.6.1` build installed under a different package name or ephemeral keystore, uninstall it first before installing `v1.7.1-pre.1` to avoid Android's *"App not installed as package conflicts with an existing package"* error.
+> CleanSMS uses the locked Application ID **`com.aistudio.cleansms.jrvxpq`** with persistent CI signing so updates from `v1.6.1+` through `v1.7.1-pre.1` to `v1.7.2-pre.1` install in-place cleanly. If your device has a pre-`1.6.1` build installed under a different package name or ephemeral keystore, uninstall it first before installing `v1.7.2-pre.1` to avoid Android's *"App not installed as package conflicts with an existing package"* error.
 
 ---
 
@@ -137,7 +137,8 @@ $$\text{Version Code} = (\text{MAJOR} \times 10000) + (\text{MINOR} \times 100) 
 | `v1.6.1-pre.1` | `1.6.1-pre.1` | `10601` | Pre-Release (Local Test Only) | Fixed Filter By Contact + deduplication bug across contact threads, persistent CI signing keystore, Default SMS App status indicator UI, GitHub Releases updater |
 | `v1.6.2-pre.1` | `1.6.2-pre.1` | `10602` | Pre-Release (Local Test Only) | Background Room `@Query` + Coroutine `Flow` Filter By Contact pipeline, Vault contact filter & group review, direct in-app APK updater, Recently Deleted 30-day batch restoration |
 | `v1.7.0-pre.1` | `1.7.0-pre.1` | `10700` | Pre-Release (Local Test Only) | Full SMS/MMS/RCS Messages landing tab, top conversation search + protocol filters, configurable Compact Messages UI density in Settings |
-| `v1.7.1-pre.1` | `1.7.1-pre.1` | `10701` | **Pre-Release (Non-Production • Local Device Test Only)** | Cross-app Archived & Spam folders (Room v6 `thread_folder_states` + Telephony/BlockedNumber sync) & direct one-tap Compact UI toggle |
+| `v1.7.1-pre.1` | `1.7.1-pre.1` | `10701` | Pre-Release (Local Test Only) | Cross-app Archived & Spam folders (Room v6 `thread_folder_states` + Telephony/BlockedNumber sync) & direct one-tap Compact UI toggle |
+| `v1.7.2-pre.1` | `1.7.2-pre.1` | `10702` | Pre-Release (Local Test Only) | Device Material UI & Android 12+ Material You dynamic theming with synced Settings toggle |
 
 ### Release Tracks
 

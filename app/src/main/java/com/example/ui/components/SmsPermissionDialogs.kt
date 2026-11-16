@@ -44,13 +44,13 @@ fun SmsPermissionRationaleDialog(
                 modifier = Modifier
                     .size(52.dp)
                     .clip(CircleShape),
-                color = CyanAccent.copy(alpha = 0.15f)
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = Icons.Default.MarkChatRead,
                         contentDescription = "SMS Permissions",
-                        tint = CyanAccent,
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(28.dp)
                     )
                 }
@@ -83,7 +83,7 @@ fun SmsPermissionRationaleDialog(
                 Surface(
                     shape = RoundedCornerShape(12.dp),
                     color = if (hasReadPermission) TealAccent.copy(alpha = 0.1f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                    border = BorderStroke(1.dp, if (hasReadPermission) TealAccent.copy(alpha = 0.5f) else CardBorder.copy(alpha = 0.5f)),
+                    border = BorderStroke(1.dp, if (hasReadPermission) TealAccent.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -96,7 +96,7 @@ fun SmsPermissionRationaleDialog(
                         Icon(
                             imageVector = if (hasReadPermission) Icons.Default.CheckCircle else Icons.Default.Search,
                             contentDescription = null,
-                            tint = if (hasReadPermission) TealAccent else CyanAccent,
+                            tint = if (hasReadPermission) TealAccent else MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)
                         )
                         Column(modifier = Modifier.weight(1f)) {
@@ -133,7 +133,7 @@ fun SmsPermissionRationaleDialog(
                 Surface(
                     shape = RoundedCornerShape(12.dp),
                     color = if (hasWritePermission) TealAccent.copy(alpha = 0.1f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                    border = BorderStroke(1.dp, if (hasWritePermission) TealAccent.copy(alpha = 0.5f) else CardBorder.copy(alpha = 0.5f)),
+                    border = BorderStroke(1.dp, if (hasWritePermission) TealAccent.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -146,7 +146,7 @@ fun SmsPermissionRationaleDialog(
                         Icon(
                             imageVector = if (hasWritePermission) Icons.Default.CheckCircle else Icons.Default.DeleteSweep,
                             contentDescription = null,
-                            tint = if (hasWritePermission) TealAccent else CyanAccent,
+                            tint = if (hasWritePermission) TealAccent else MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)
                         )
                         Column(modifier = Modifier.weight(1f)) {
@@ -212,13 +212,16 @@ fun SmsPermissionRationaleDialog(
         confirmButton = {
             Button(
                 onClick = onRequestPermissions,
-                colors = ButtonDefaults.buttonColors(containerColor = CyanAccent),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ),
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier.testTag("grant_sms_permissions_btn")
             ) {
-                Icon(Icons.Default.Check, contentDescription = null, tint = Navy900, modifier = Modifier.size(16.dp))
+                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Grant SMS Permissions", color = Navy900, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Text("Grant SMS Permissions", fontWeight = FontWeight.Bold, fontSize = 13.sp)
             }
         },
         dismissButton = {
@@ -295,13 +298,16 @@ fun SmsPermissionSettingsDialog(
                     openAppSettings(context)
                     onDismiss()
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = CyanAccent),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ),
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier.testTag("open_app_settings_btn")
             ) {
-                Icon(Icons.AutoMirrored.Filled.Launch, contentDescription = null, tint = Navy900, modifier = Modifier.size(16.dp))
+                Icon(Icons.AutoMirrored.Filled.Launch, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Open App Settings", color = Navy900, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Text("Open App Settings", fontWeight = FontWeight.Bold, fontSize = 13.sp)
             }
         },
         dismissButton = {

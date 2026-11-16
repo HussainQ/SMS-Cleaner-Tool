@@ -37,7 +37,7 @@ fun ThreadDuplicateClusterCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .testTag("thread_cluster_${cluster.threadId}"),
-        colors = CardDefaults.cardColors(containerColor = CardDark),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = CardDefaults.outlinedCardBorder().copy(
             brush = androidx.compose.ui.graphics.SolidColor(AmberAccent.copy(alpha = 0.35f))
         )
@@ -60,14 +60,14 @@ fun ThreadDuplicateClusterCard(
                     Icon(
                         imageVector = if (cluster.isRcs) Icons.Default.ChatBubble else Icons.Default.Forum,
                         contentDescription = null,
-                        tint = if (cluster.isRcs) CyanAccent else AmberAccent,
+                        tint = if (cluster.isRcs) MaterialTheme.colorScheme.primary else AmberAccent,
                         modifier = Modifier.size(18.dp)
                     )
                     Text(
                         text = if (cluster.threadId > 0) "Thread #${cluster.threadId} • ${cluster.sender}" else cluster.sender,
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp,
-                        color = TextPrimary,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -120,13 +120,13 @@ fun ThreadDuplicateClusterCard(
                         Text(
                             text = masterDateStr,
                             fontSize = 10.sp,
-                            color = TextSecondary
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     Text(
                         text = cluster.masterMessage.body,
                         fontSize = 12.sp,
-                        color = TextPrimary,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         lineHeight = 16.sp
@@ -140,7 +140,7 @@ fun ThreadDuplicateClusterCard(
                     text = "Duplicate copies to remove:",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = TextSecondary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 cluster.duplicateCopies.forEachIndexed { idx, dup ->
                     val dupDate = remember(dup.date) { DateFormatterUtil.formatWithSeconds(dup.date) }
@@ -180,7 +180,10 @@ fun ThreadDuplicateClusterCard(
             ) {
                 Button(
                     onClick = onFixThread,
-                    colors = ButtonDefaults.buttonColors(containerColor = CyanAccent),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ),
                     shape = RoundedCornerShape(8.dp),
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
                     modifier = Modifier.testTag("fix_thread_button_${cluster.threadId}")
@@ -188,13 +191,11 @@ fun ThreadDuplicateClusterCard(
                     Icon(
                         Icons.Default.CleaningServices,
                         contentDescription = null,
-                        tint = Navy900,
                         modifier = Modifier.size(14.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "Fix Thread (Remove ${cluster.duplicateCount})",
-                        color = Navy900,
                         fontWeight = FontWeight.Bold,
                         fontSize = 12.sp
                     )

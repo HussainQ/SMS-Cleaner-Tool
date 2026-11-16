@@ -314,7 +314,10 @@ fun AddCustomRuleSheet(
                     }
                 },
                 enabled = name.isNotBlank() && hasCriteria,
-                colors = ButtonDefaults.buttonColors(containerColor = CyanAccent),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp)
@@ -323,13 +326,11 @@ fun AddCustomRuleSheet(
                 Icon(
                     imageVector = if (isEditing) Icons.Default.Save else Icons.Default.Add,
                     contentDescription = null,
-                    tint = Navy900,
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = if (isEditing) "Update Rule & Apply" else "Save Rule & Apply",
-                    color = Navy900,
                     fontWeight = FontWeight.Bold
                 )
             }

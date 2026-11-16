@@ -106,9 +106,9 @@ fun ContactPickerDialog(
                 // Contacts Permission Prompt if not yet granted
                 if (!hasContactsPermission) {
                     Surface(
-                        color = CyanAccent.copy(alpha = 0.1f),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
                         shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, CyanAccent.copy(alpha = 0.35f)),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
@@ -126,7 +126,7 @@ fun ContactPickerDialog(
                                 Icon(
                                     Icons.Default.Contacts,
                                     contentDescription = null,
-                                    tint = CyanAccent,
+                                    tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Text(
@@ -141,7 +141,7 @@ fun ContactPickerDialog(
                                 onClick = onRequestContactsPermission,
                                 modifier = Modifier.testTag("picker_grant_contacts_btn")
                             ) {
-                                Text("Allow", color = CyanAccent, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                Text("Allow", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                             }
                         }
                     }
@@ -205,10 +205,10 @@ fun ContactPickerDialog(
                             val isSelected = contact.id in selectedIds
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
-                                color = if (isSelected) CyanAccent.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
                                 border = BorderStroke(
                                     1.dp,
-                                    if (isSelected) CyanAccent.copy(alpha = 0.6f) else CardBorder.copy(alpha = 0.35f)
+                                    if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
                                 ),
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -308,10 +308,13 @@ fun ContactPickerDialog(
                                 val chosen = availableContacts.filter { it.id in selectedIds }
                                 onConfirmSelection(chosen)
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = CyanAccent),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            ),
                             modifier = Modifier.testTag("contact_picker_confirm_btn")
                         ) {
-                            Text("Apply (${selectedIds.size})", color = Navy900, fontWeight = FontWeight.Bold)
+                            Text("Apply (${selectedIds.size})", fontWeight = FontWeight.Bold)
                         }
                     }
                 }

@@ -222,14 +222,17 @@ private fun CustomRulesPane(
 
             Button(
                 onClick = { viewModel.openAddRuleSheet() },
-                colors = ButtonDefaults.buttonColors(containerColor = CyanAccent),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ),
                 shape = RoundedCornerShape(10.dp),
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                 modifier = Modifier.testTag("add_rule_fab_button")
             ) {
-                Icon(Icons.Default.Add, contentDescription = null, tint = Navy900, modifier = Modifier.size(16.dp))
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("New Rule", color = Navy900, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Text("New Rule", fontWeight = FontWeight.Bold, fontSize = 13.sp)
             }
         }
 
@@ -294,10 +297,10 @@ private fun CustomRuleItemCard(
 ) {
     Card(
         shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = CardDark),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = CardDefaults.outlinedCardBorder().copy(
             brush = androidx.compose.ui.graphics.SolidColor(
-                if (rule.isEnabled) TealAccent.copy(alpha = 0.4f) else CardBorder.copy(alpha = 0.4f)
+                if (rule.isEnabled) TealAccent.copy(alpha = 0.4f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
             )
         ),
         modifier = Modifier
@@ -335,7 +338,7 @@ private fun CustomRuleItemCard(
                         text = rule.name,
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp,
-                        color = TextPrimary,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -351,7 +354,7 @@ private fun CustomRuleItemCard(
                         Icon(
                             Icons.Default.Edit,
                             contentDescription = "Edit rule",
-                            tint = CyanAccent,
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -381,46 +384,46 @@ private fun CustomRuleItemCard(
             ) {
                 if (rule.contactFilter.isNotBlank()) {
                     Surface(
-                        color = CyanAccent.copy(alpha = 0.16f),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
                         shape = RoundedCornerShape(6.dp)
                     ) {
                         Text(
                             text = "Contacts: ${rule.contactFilter.take(24)}${if (rule.contactFilter.length > 24) "..." else ""}",
                             fontSize = 11.sp,
-                            color = CyanAccent,
+                            color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                         )
                     }
                 }
                 if (rule.senderFilter.isNotBlank()) {
                     Surface(
-                        color = Slate600.copy(alpha = 0.3f),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
                         shape = RoundedCornerShape(6.dp)
                     ) {
                         Text(
                             text = "Sender: ${rule.senderFilter}",
                             fontSize = 11.sp,
-                            color = TextSecondary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                         )
                     }
                 }
                 if (rule.keywords.isNotBlank()) {
                     Surface(
-                        color = Slate600.copy(alpha = 0.3f),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
                         shape = RoundedCornerShape(6.dp)
                     ) {
                         Text(
                             text = "Keywords: ${rule.keywords.take(18)}${if (rule.keywords.length > 18) "..." else ""}",
                             fontSize = 11.sp,
-                            color = TextSecondary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                         )
                     }
                 }
                 if (rule.olderThanDays != null) {
                     Surface(
-                        color = Slate600.copy(alpha = 0.3f),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
                         shape = RoundedCornerShape(6.dp)
                     ) {
                         Text(
@@ -463,9 +466,9 @@ private fun CloudBackupPane(
 
         // Secrets & Security Status Banner with Local Vault Policy
         Surface(
-            color = CardDark,
+            color = MaterialTheme.colorScheme.surface,
             shape = RoundedCornerShape(12.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, CardBorder),
+            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)),
             modifier = Modifier.fillMaxWidth()
         ) {
             Row(
@@ -490,7 +493,10 @@ private fun CloudBackupPane(
         // Cloud Storage Providers with OAuth Authorization Controls
         Card(
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = CardDark),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = CardDefaults.outlinedCardBorder().copy(
+                brush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+            ),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
@@ -516,32 +522,32 @@ private fun CloudBackupPane(
                             modifier = Modifier.weight(1f)
                         ) {
                             Surface(
-                                color = CyanAccent.copy(alpha = 0.15f),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
                                 shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier.size(38.dp)
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Default.CloudQueue, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(22.dp))
+                                    Icon(Icons.Default.CloudQueue, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
                                 }
                             }
                             Column {
-                                Text("Google Drive", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextPrimary)
+                                Text("Google Drive", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
                                 if (isGoogleDriveAuth) {
                                     Text(
                                         text = "Authorized • ${googleDriveCred!!.accountName}",
                                         fontSize = 11.sp,
-                                        color = TealAccent
+                                        color = MaterialTheme.colorScheme.secondary
                                     )
                                     Text(
                                         text = "Local Key: ${googleDriveCred.maskedToken} (Private Storage)",
                                         fontSize = 10.sp,
-                                        color = TextSecondary
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 } else {
                                     Text(
                                         text = "Not Authorized • Device secret not pulled",
                                         fontSize = 11.sp,
-                                        color = TextMuted
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f)
                                     )
                                 }
                             }
@@ -568,19 +574,22 @@ private fun CloudBackupPane(
                                     if (def != null) viewModel.requestServiceAuthorization(def)
                                 },
                                 shape = RoundedCornerShape(8.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = CyanAccent),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary,
+                                    contentColor = MaterialTheme.colorScheme.onPrimary
+                                ),
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                                 modifier = Modifier.testTag("auth_google_drive_btn")
                             ) {
-                                Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(14.dp), tint = Navy900)
+                                Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(14.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Authorize", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Navy900)
+                                Text("Authorize", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
                 }
 
-                HorizontalDivider(color = CardBorder.copy(alpha = 0.5f))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f))
 
                 // Dropbox Row
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -604,23 +613,23 @@ private fun CloudBackupPane(
                                 }
                             }
                             Column {
-                                Text("Dropbox", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextPrimary)
+                                Text("Dropbox", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
                                 if (isDropboxAuth) {
                                     Text(
                                         text = "Authorized • ${dropboxCred!!.accountName}",
                                         fontSize = 11.sp,
-                                        color = TealAccent
+                                        color = MaterialTheme.colorScheme.secondary
                                     )
                                     Text(
                                         text = "Local Key: ${dropboxCred.maskedToken} (Private Storage)",
                                         fontSize = 10.sp,
-                                        color = TextSecondary
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 } else {
                                     Text(
                                         text = "Not Authorized • Device secret not pulled",
                                         fontSize = 11.sp,
-                                        color = TextMuted
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f)
                                     )
                                 }
                             }
@@ -666,7 +675,7 @@ private fun CloudBackupPane(
             Surface(
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
                 shape = RoundedCornerShape(12.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, CardBorder.copy(alpha = 0.4f)),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -727,6 +736,36 @@ private fun CloudBackupPane(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
+                        Text("Use Device Material UI", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                        Text(
+                            text = if (uiState.useDeviceMaterialTheme) {
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                                    "Follows system Light/Dark mode & Material You wallpaper colors"
+                                } else {
+                                    "Follows device system Light/Dark Material theme"
+                                }
+                            } else {
+                                "Classic CleanSMS Dark theme active"
+                            },
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = uiState.useDeviceMaterialTheme,
+                        onCheckedChange = { viewModel.setUseDeviceMaterialTheme(it) },
+                        modifier = Modifier.testTag("settings_device_material_theme_switch")
+                    )
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.16f))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text("Compact Messages UI", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                         Text(
                             text = if (uiState.compactMessagesUi) {
@@ -767,27 +806,31 @@ private fun CloudBackupPane(
 
         Button(
             onClick = { viewModel.performManualCloudBackup() },
-            colors = ButtonDefaults.buttonColors(containerColor = CyanAccent),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            ),
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier
                 .fillMaxWidth()
                 .height(46.dp)
                 .testTag("manual_backup_button")
         ) {
-            Icon(Icons.Default.CloudUpload, contentDescription = null, tint = Navy900, modifier = Modifier.size(18.dp))
+            Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Back Up to ${uiState.selectedCloudProvider}", color = Navy900, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Text("Back Up to ${uiState.selectedCloudProvider}", fontWeight = FontWeight.Bold, fontSize = 14.sp)
         }
 
         // GitHub Release Updates & Multi-Version Upgrade Card
         val updateResult = uiState.updateCheckResult
         val updateAvailable = updateResult?.isUpdateAvailable == true
+        val updateAccent = if (updateAvailable) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary
         Surface(
-            color = (if (updateAvailable) TealAccent else CyanAccent).copy(alpha = 0.1f),
+            color = updateAccent.copy(alpha = 0.1f),
             shape = RoundedCornerShape(14.dp),
             border = androidx.compose.foundation.BorderStroke(
                 1.dp,
-                (if (updateAvailable) TealAccent else CardBorder).copy(alpha = 0.55f)
+                if (updateAvailable) updateAccent.copy(alpha = 0.55f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)
             ),
             modifier = Modifier
                 .fillMaxWidth()
@@ -809,7 +852,7 @@ private fun CloudBackupPane(
                     Icon(
                         imageVector = if (updateAvailable) Icons.Default.SystemUpdate else Icons.Default.Update,
                         contentDescription = null,
-                        tint = if (updateAvailable) TealAccent else CyanAccent,
+                        tint = updateAccent,
                         modifier = Modifier.size(20.dp)
                     )
                     Column {
@@ -821,7 +864,7 @@ private fun CloudBackupPane(
                             },
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp,
-                            color = if (updateAvailable) TealAccent else MaterialTheme.colorScheme.onSurface
+                            color = if (updateAvailable) updateAccent else MaterialTheme.colorScheme.onSurface
                         )
                         Text(
                             text = when {
@@ -844,7 +887,7 @@ private fun CloudBackupPane(
                         text = if (updateAvailable) "Pull Update" else "Check",
                         fontWeight = FontWeight.Bold,
                         fontSize = 12.sp,
-                        color = if (updateAvailable) TealAccent else CyanAccent
+                        color = updateAccent
                     )
                 }
             }
@@ -860,14 +903,14 @@ private fun CloudBackupPane(
 
         if (uiState.backupHistory.isEmpty()) {
             Card(
-                colors = CardDefaults.cardColors(containerColor = CardDark.copy(alpha = 0.5f)),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
                     text = "No cloud backups saved yet. Create your first snapshot above.",
                     fontSize = 12.sp,
-                    color = TextSecondary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(14.dp)
                 )
             }
@@ -882,7 +925,7 @@ private fun CloudBackupPane(
                     }
                     Card(
                         shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = CardDark),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
@@ -897,26 +940,33 @@ private fun CloudBackupPane(
                                     text = record.fileName,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 12.sp,
-                                    color = TextPrimary,
+                                    color = MaterialTheme.colorScheme.onSurface,
                                     maxLines = 1
                                 )
                                 Text(
                                     text = "${record.provider} • $dateFormatted • ${record.messageCount} msgs",
                                     fontSize = 11.sp,
-                                    color = TextSecondary
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
 
                             Button(
                                 onClick = { viewModel.inspectBackupForRestore(record) },
-                                colors = ButtonDefaults.buttonColors(containerColor = TealAccent),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.secondary,
+                                    contentColor = MaterialTheme.colorScheme.onSecondary
+                                ),
                                 shape = RoundedCornerShape(8.dp),
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                                 modifier = Modifier.testTag("restore_cloud_backup_btn_${record.id}")
                             ) {
-                                Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color.Black)
+                                Icon(
+                                    Icons.Default.Restore,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp)
+                                )
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Restore", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text("Restore", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }

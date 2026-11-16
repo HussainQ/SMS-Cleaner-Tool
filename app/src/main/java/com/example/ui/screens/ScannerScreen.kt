@@ -211,7 +211,7 @@ private fun DataSourceCard(
                     Icon(
                         imageVector = if (uiState.isDemoMode) Icons.Default.Science else Icons.Default.Smartphone,
                         contentDescription = null,
-                        tint = if (uiState.isDemoMode) CyanAccent else TealAccent,
+                        tint = if (uiState.isDemoMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -268,14 +268,17 @@ private fun ClutterAnalysisCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Navy800)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(
                     Brush.linearGradient(
-                        colors = listOf(Navy800, Navy700.copy(alpha = 0.8f))
+                        colors = listOf(
+                            MaterialTheme.colorScheme.primaryContainer,
+                            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.72f)
+                        )
                     )
                 )
                 .padding(20.dp)
@@ -291,14 +294,14 @@ private fun ClutterAnalysisCard(
                             text = if (isScanning) "Scanning Inbox..." else "Inbox Analysis",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            color = CyanAccent,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
                             letterSpacing = 1.sp
                         )
                         Text(
                             text = "$totalCleanable Messages to Clean",
                             fontSize = 22.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            color = TextPrimary
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                     }
 
@@ -306,12 +309,12 @@ private fun ClutterAnalysisCard(
                         onClick = onRefresh,
                         modifier = Modifier
                             .clip(CircleShape)
-                            .background(CardBorder)
+                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f))
                             .testTag("refresh_scan_button")
                     ) {
                         if (isScanning) {
                             CircularProgressIndicator(
-                                color = CyanAccent,
+                                color = MaterialTheme.colorScheme.primary,
                                 strokeWidth = 2.dp,
                                 modifier = Modifier.size(20.dp)
                             )
@@ -319,7 +322,7 @@ private fun ClutterAnalysisCard(
                             Icon(
                                 Icons.Default.Refresh,
                                 contentDescription = "Rescan",
-                                tint = CyanAccent
+                                tint = MaterialTheme.colorScheme.primary
                             )
                         }
                     }
@@ -328,7 +331,7 @@ private fun ClutterAnalysisCard(
                 Text(
                     text = "Out of $allMessagesCount total messages in your inbox, we found redundant copies, expired verification codes, ads, and spam.",
                     fontSize = 13.sp,
-                    color = TextSecondary,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f),
                     lineHeight = 18.sp
                 )
 
@@ -369,7 +372,10 @@ private fun ClutterAnalysisCard(
 
                 Button(
                     onClick = onNavigateToPreview,
-                    colors = ButtonDefaults.buttonColors(containerColor = CyanAccent),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -378,7 +384,6 @@ private fun ClutterAnalysisCard(
                 ) {
                     Text(
                         text = "Review & Clean Messages ($totalCleanable)",
-                        color = Navy900,
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp
                     )
@@ -386,7 +391,6 @@ private fun ClutterAnalysisCard(
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowForward,
                         contentDescription = null,
-                        tint = Navy900,
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -488,9 +492,9 @@ fun TelephonyBanner(
                     }
                 } else {
                     Surface(
-                        color = TealAccent.copy(alpha = 0.20f),
+                        color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.16f),
                         shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(1.dp, TealAccent.copy(alpha = 0.55f)),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.55f)),
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("default_sms_app_status_indicator")
@@ -509,23 +513,23 @@ fun TelephonyBanner(
                                 Icon(
                                     imageVector = Icons.Default.CheckCircle,
                                     contentDescription = "Default SMS App",
-                                    tint = TealAccent,
+                                    tint = MaterialTheme.colorScheme.secondary,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Text(
                                     text = "Default SMS App",
-                                    color = TealAccent,
+                                    color = MaterialTheme.colorScheme.secondary,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 14.sp
                                 )
                             }
                             Surface(
-                                color = TealAccent,
+                                color = MaterialTheme.colorScheme.secondary,
                                 shape = CircleShape
                             ) {
                                 Text(
                                     text = "ACTIVE",
-                                    color = Navy900,
+                                    color = MaterialTheme.colorScheme.onSecondary,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
@@ -536,18 +540,23 @@ fun TelephonyBanner(
 
                     OutlinedButton(
                         onClick = onHandBackDefaultSmsRole,
-                        border = BorderStroke(1.dp, TealAccent.copy(alpha = 0.6f)),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.6f)),
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(48.dp)
                             .testTag("hand_back_default_sms_button")
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = null, tint = TealAccent, modifier = Modifier.size(18.dp))
+                        Icon(
+                            Icons.AutoMirrored.Filled.Undo,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.size(18.dp)
+                        )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = "Hand Back Default SMS Role to $previousAppName",
-                            color = TealAccent,
+                            color = MaterialTheme.colorScheme.secondary,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -731,10 +740,10 @@ private fun StatBadge(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        color = CardDark,
+        color = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(12.dp),
         border = CardDefaults.outlinedCardBorder().copy(
-            brush = androidx.compose.ui.graphics.SolidColor(color.copy(alpha = 0.3f))
+            brush = androidx.compose.ui.graphics.SolidColor(color.copy(alpha = 0.35f))
         ),
         modifier = modifier
     ) {
@@ -753,12 +762,12 @@ private fun StatBadge(
                 text = count.toString(),
                 fontWeight = FontWeight.ExtraBold,
                 fontSize = 16.sp,
-                color = TextPrimary
+                color = MaterialTheme.colorScheme.onSurface
             )
             Text(
                 text = label,
                 fontSize = 10.sp,
-                color = TextSecondary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1
             )
         }
@@ -894,16 +903,19 @@ fun SmsPermissionsBanner(
                     if (!smsGranted) {
                         Button(
                             onClick = onRequestSmsPermission,
-                            colors = ButtonDefaults.buttonColors(containerColor = CyanAccent),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            ),
                             shape = RoundedCornerShape(10.dp),
                             modifier = Modifier
                                 .weight(1f)
                                 .height(42.dp)
                                 .testTag("request_sms_permissions_banner_btn")
                         ) {
-                            Icon(Icons.Default.LockOpen, contentDescription = null, tint = Navy900, modifier = Modifier.size(15.dp))
+                            Icon(Icons.Default.LockOpen, contentDescription = null, modifier = Modifier.size(15.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Grant SMS", color = Navy900, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
+                            Text("Grant SMS", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
                         }
                     }
 

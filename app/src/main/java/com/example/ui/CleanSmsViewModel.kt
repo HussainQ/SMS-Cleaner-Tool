@@ -157,6 +157,7 @@ data class CleanSmsUiState(
     val messagesSearchQuery: String = "",
     val messagesProtocolFilter: MessageProtocol? = null,
     val compactMessagesUi: Boolean = true,
+    val useDeviceMaterialTheme: Boolean = true,
     val showMessagesSettingsDialog: Boolean = false,
     val activeConversationKey: String? = null,
     val pendingNewRecipientAddress: String? = null,
@@ -248,12 +249,14 @@ class CleanSmsViewModel @JvmOverloads constructor(
         val repoSlug = appUpgradeManager.getGitHubRepoSlug()
         val includePre = appUpgradeManager.getIncludePrereleases()
         val compactUi = appUpgradeManager.isCompactMessagesUi()
+        val deviceMaterialTheme = appUpgradeManager.isUseDeviceMaterialTheme()
         _uiState.update {
             it.copy(
                 gitHubRepoSlug = repoSlug,
                 includePrereleases = includePre,
                 upgradeMigrationReport = migrationReport,
-                compactMessagesUi = compactUi
+                compactMessagesUi = compactUi,
+                useDeviceMaterialTheme = deviceMaterialTheme
             )
         }
     }
@@ -2373,6 +2376,11 @@ class CleanSmsViewModel @JvmOverloads constructor(
     fun setCompactMessagesUi(compact: Boolean) {
         appUpgradeManager.setCompactMessagesUi(compact)
         _uiState.update { it.copy(compactMessagesUi = compact) }
+    }
+
+    fun setUseDeviceMaterialTheme(enabled: Boolean) {
+        appUpgradeManager.setUseDeviceMaterialTheme(enabled)
+        _uiState.update { it.copy(useDeviceMaterialTheme = enabled) }
     }
 
     fun openMessagesSettingsDialog() {

@@ -50,7 +50,7 @@ fun AuthorizeServiceDialog(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Surface(
-                    color = CyanAccent.copy(alpha = 0.15f),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.size(40.dp)
                 ) {
@@ -58,7 +58,7 @@ fun AuthorizeServiceDialog(
                         Icon(
                             imageVector = Icons.Default.VpnKey,
                             contentDescription = null,
-                            tint = CyanAccent,
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(22.dp)
                         )
                     }
@@ -73,7 +73,7 @@ fun AuthorizeServiceDialog(
                     Text(
                         text = serviceDef.name,
                         fontSize = 13.sp,
-                        color = CyanAccent,
+                        color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
@@ -144,8 +144,8 @@ fun AuthorizeServiceDialog(
                         val isSelected = acc == selectedAccount
                         Surface(
                             shape = RoundedCornerShape(8.dp),
-                            color = if (isSelected) CyanAccent.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
-                            border = BorderStroke(1.dp, if (isSelected) CyanAccent else Color.Transparent),
+                            color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
+                            border = BorderStroke(1.dp, if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { onSelectAccount(acc) }
@@ -164,7 +164,7 @@ fun AuthorizeServiceDialog(
                                     Icon(
                                         Icons.Default.AccountCircle,
                                         contentDescription = null,
-                                        tint = if (isSelected) CyanAccent else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Text(
@@ -225,7 +225,10 @@ fun AuthorizeServiceDialog(
             Button(
                 onClick = onConfirmAuthorization,
                 enabled = !isAuthorizing,
-                colors = ButtonDefaults.buttonColors(containerColor = CyanAccent),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ),
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier.testTag("confirm_authorize_button")
             ) {
@@ -233,19 +236,18 @@ fun AuthorizeServiceDialog(
                     CircularProgressIndicator(
                         modifier = Modifier.size(16.dp),
                         strokeWidth = 2.dp,
-                        color = Navy900
+                        color = MaterialTheme.colorScheme.onPrimary
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Pulling Secret...", color = Navy900, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text("Pulling Secret...", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 } else {
                     Icon(
                         Icons.Default.Check,
                         contentDescription = null,
-                        tint = Navy900,
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Authorize & Save Locally", color = Navy900, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text("Authorize & Save Locally", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 }
             }
         },
