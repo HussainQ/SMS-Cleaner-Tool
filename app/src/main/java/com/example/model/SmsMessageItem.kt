@@ -34,7 +34,8 @@ data class SmsMessageItem(
     val isExpiredOtp: Boolean = false,
     val matchedRuleName: String? = null,
     val isSelected: Boolean = true,
-    val isQuarantined: Boolean = false
+    val isQuarantined: Boolean = false,
+    val deletedAt: Long? = null
 ) {
     val displaySender: String
         get() = if (!contactName.isNullOrBlank() && !contactName.equals(address, ignoreCase = true)) {

@@ -122,7 +122,7 @@ jobs:
         id: artifacts
         run: |
           VERSION_NAME=$(grep -m1 'versionName =' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')
-          DEFAULT_TAG="v${VERSION_NAME:-1.6.1-pre.1}"
+          DEFAULT_TAG="v${VERSION_NAME:-1.6.2-pre.1}"
 
           if [ -n "${{ github.event.inputs.tag_name }}" ]; then
             TAG="${{ github.event.inputs.tag_name }}"

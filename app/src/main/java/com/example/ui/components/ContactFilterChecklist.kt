@@ -288,15 +288,15 @@ fun ContactFilterChecklist(
             }
 
             // Search Bar + Select All / Clear Row
-            if (entries.isNotEmpty()) {
+            if (entries.isNotEmpty() || activeSearchQuery.isNotEmpty()) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
+                        value = activeSearchQuery,
+                        onValueChange = updateSearchQuery,
                         placeholder = { Text("Filter contact name or number...", fontSize = 12.sp) },
                         leadingIcon = {
                             Icon(
@@ -306,9 +306,9 @@ fun ContactFilterChecklist(
                             )
                         },
                         trailingIcon = {
-                            if (searchQuery.isNotEmpty()) {
+                            if (activeSearchQuery.isNotEmpty()) {
                                 IconButton(
-                                    onClick = { searchQuery = "" },
+                                    onClick = { updateSearchQuery("") },
                                     modifier = Modifier.size(28.dp)
                                 ) {
                                     Icon(
@@ -329,7 +329,7 @@ fun ContactFilterChecklist(
 
                     TextButton(
                         onClick = onSelectAll,
-                        enabled = selectedCount < entries.size,
+                        enabled = entries.isNotEmpty() && selectedCount < entries.size,
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                         modifier = Modifier.testTag("${testTagPrefix}_select_all_btn")
                     ) {
@@ -356,7 +356,7 @@ fun ContactFilterChecklist(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = if (searchQuery.isNotBlank()) "No contacts match '$searchQuery'" else emptyMessage,
+                        text = if (activeSearchQuery.isNotBlank()) "No contacts match '$activeSearchQuery'" else emptyMessage,
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

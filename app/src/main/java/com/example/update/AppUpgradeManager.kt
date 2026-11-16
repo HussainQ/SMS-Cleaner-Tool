@@ -4,8 +4,8 @@ import android.content.Context
 import com.example.BuildConfig
 
 /**
- * Manages application-level upgrade state across arbitrary version jumps (e.g. v1.0.0 -> v1.6.0+).
- * Pairs with explicit Room DatabaseMigrations (v1 -> v2 -> v3 -> v4) so updating directly from
+ * Manages application-level upgrade state across arbitrary version jumps (e.g. v1.0.0 -> v1.6.2+).
+ * Pairs with explicit Room DatabaseMigrations (v1 -> v2 -> v3 -> v4 -> v5) so updating directly from
  * any older release preserves rules, quarantined items, cloud snapshots, and telephony preferences.
  */
 class AppUpgradeManager(private val context: Context) {
@@ -80,6 +80,9 @@ class AppUpgradeManager(private val context: Context) {
             }
             if (effectivePrev in 1 until 10601 && targetVersionCode >= 10601) {
                 applied.add("v1.6.1: Scoped per-contact filter rules cleanly across contact threads")
+            }
+            if (effectivePrev in 1 until 10602 && targetVersionCode >= 10602) {
+                applied.add("v1.6.2: Background Room @Query + Coroutine Flow contact filtering & Recently Deleted batch restoration")
             }
             if (prefs.getString(KEY_GITHUB_REPO, null)?.equals(LEGACY_PLACEHOLDER_REPO, ignoreCase = true) == true) {
                 prefs.edit().putString(KEY_GITHUB_REPO, DEFAULT_GITHUB_REPO).apply()

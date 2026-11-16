@@ -1,7 +1,6 @@
 package com.example.ui.screens
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -28,6 +27,7 @@ import com.example.ui.CleanSmsViewModel
 import com.example.ui.components.ContactFilterChecklist
 import com.example.ui.components.MessageCard
 import com.example.ui.theme.*
+import kotlin.math.max
 
 @Composable
 fun VaultRestoreScreen(
@@ -36,7 +36,7 @@ fun VaultRestoreScreen(
     onRequestContactsPermission: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    val selectedVaultTab = uiState.vaultSubTab // 0 = Quarantine, 1 = Deleted (Test)
+    val selectedVaultTab = uiState.vaultSubTab // 0 = Quarantine, 1 = Recently Deleted
     var showContactFilterPanel by remember { mutableStateOf(false) }
 
     LaunchedEffect(uiState.vaultFilterByContactEnabled) {
@@ -56,21 +56,10 @@ fun VaultRestoreScreen(
     val quarantined = uiState.quarantinedMessages
     val deletedTest = uiState.deletedTestMessages
 
+    // Driven directly by Room @Query + Coroutine Flow on background IO dispatcher
     val activeVaultFilter = uiState.vaultFilterByContactEnabled && uiState.vaultSelectedContacts.isNotEmpty()
-    val visibleQuarantined = remember(quarantined, activeVaultFilter, uiState.vaultSelectedContacts) {
-        if (activeVaultFilter) {
-            ContactThreadHelper.filterMessagesByContacts(quarantined, uiState.vaultSelectedContacts)
-        } else {
-            quarantined
-        }
-    }
-    val visibleDeletedTest = remember(deletedTest, activeVaultFilter, uiState.vaultSelectedContacts) {
-        if (activeVaultFilter) {
-            ContactThreadHelper.filterMessagesByContacts(deletedTest, uiState.vaultSelectedContacts)
-        } else {
-            deletedTest
-        }
-    }
+    val visibleQuarantined = if (activeVaultFilter) uiState.filteredQuarantinedMessages else quarantined
+    val visibleDeletedTest = if (activeVaultFilter) uiState.filteredDeletedTestMessages else deletedTest
 
     val visibleQuarantinedSelectedCount = remember(visibleQuarantined) { visibleQuarantined.count { it.isSelected } }
     val allVisibleQuarantinedSelected = visibleQuarantined.isNotEmpty() && visibleQuarantinedSelectedCount == visibleQuarantined.size
@@ -85,7 +74,7 @@ fun VaultRestoreScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // Top Header + Mode Switcher + Contact Group Review Filter + Testing Toggle
+        // Top Header + Mode Switcher + Contact Group Review Filter + Recently Deleted Recovery Toggle
         Card(
             shape = RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -94,8 +83,8 @@ fun VaultRestoreScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -104,25 +93,34 @@ fun VaultRestoreScreen(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Quarantine & Restore Vault",
-                            fontSize = 18.sp,
+                            text = if (selectedVaultTab == 0) {
+                                "Quarantine & Restore Vault"
+                            } else {
+                                "Recently Deleted Folder"
+                            },
+                            fontSize = 17.sp,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             text = if (selectedVaultTab == 0) {
-                                "${visibleQuarantined.size} of ${quarantined.size} quarantined • ${deletedTest.size} test snapshots"
+                                "${visibleQuarantined.size} of ${quarantined.size} quarantined • ${deletedTest.size} recently deleted"
                             } else {
-                                "${visibleDeletedTest.size} of ${deletedTest.size} deleted snapshot(s)"
+                                "${visibleDeletedTest.size} of ${deletedTest.size} recoverable • 30-day retention"
                             },
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
 
                     if (selectedVaultTab == 0 && quarantined.isNotEmpty()) {
                         TextButton(
                             onClick = { viewModel.emptyQuarantine() },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                             colors = ButtonDefaults.textButtonColors(contentColor = RedDestructive)
                         ) {
                             Text("Empty Vault", fontSize = 12.sp)
@@ -130,10 +128,11 @@ fun VaultRestoreScreen(
                     } else if (selectedVaultTab == 1 && deletedTest.isNotEmpty()) {
                         TextButton(
                             onClick = { viewModel.clearDeletedTestSnapshots() },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                             colors = ButtonDefaults.textButtonColors(contentColor = RedDestructive),
                             modifier = Modifier.testTag("clear_deleted_test_snapshots_btn")
                         ) {
-                            Text("Clear Snapshots", fontSize = 12.sp)
+                            Text("Empty Trash", fontSize = 12.sp)
                         }
                     }
                 }
@@ -148,7 +147,7 @@ fun VaultRestoreScreen(
                         shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
                         modifier = Modifier.testTag("vault_tab_quarantine")
                     ) {
-                        Text("Quarantine (${quarantined.size})", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Quarantine (${quarantined.size})", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                     }
                     SegmentedButton(
                         selected = selectedVaultTab == 1,
@@ -156,7 +155,7 @@ fun VaultRestoreScreen(
                         shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
                         modifier = Modifier.testTag("vault_tab_deleted_test")
                     ) {
-                        Text("Deleted Test (${deletedTest.size})", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Recently Deleted (${deletedTest.size})", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                     }
                 }
 
@@ -216,13 +215,13 @@ fun VaultRestoreScreen(
                     )
                 }
 
-                AnimatedVisibility(visible = showContactFilterPanel) {
+                if (showContactFilterPanel) {
                     val selectedVaultContactIds = remember(uiState.vaultSelectedContacts) {
                         uiState.vaultSelectedContacts.map { it.id }.toSet()
                     }
                     ContactFilterChecklist(
                         title = "Filter Vault by Contact",
-                        subtitle = "Check contacts to review, group, restore, or delete by contact thread",
+                        subtitle = "Check contacts to review, group, or batch-restore by contact thread",
                         entries = uiState.vaultContactEntries,
                         selectedContactIds = selectedVaultContactIds,
                         onToggleContact = { contact -> viewModel.toggleVaultSelectedContact(contact) },
@@ -233,25 +232,27 @@ fun VaultRestoreScreen(
                         filterEnabled = uiState.vaultFilterByContactEnabled,
                         onToggleFilterEnabled = { enabled -> viewModel.toggleVaultContactFilter(enabled) },
                         scopeSummaryText = if (activeVaultFilter) {
-                            "Reviewing ${uiState.vaultSelectedContacts.size} selected contact group(s) in Vault"
+                            "Reviewing ${uiState.vaultSelectedContacts.size} selected contact group(s) via Room Query"
                         } else {
                             null
                         },
-                        emptyMessage = "No contacts in Quarantine or Deleted snapshots yet",
+                        emptyMessage = "No contacts in Quarantine or Recently Deleted yet",
                         maxListHeightDp = 120,
                         testTagPrefix = "vault_contact_filter",
-                        switchTestTag = "vault_contact_filter_switch"
+                        switchTestTag = "vault_contact_filter_switch",
+                        searchQuery = uiState.vaultContactSearchQuery,
+                        onSearchQueryChange = { viewModel.setVaultContactSearchQuery(it) }
                     )
                 }
 
-                // Testing Deleted Message Recovery Toggle
+                // Recently Deleted Recovery Toggle (Compact)
                 Surface(
                     color = if (uiState.testingRestoreDeletedEnabled) {
                         AmberAccent.copy(alpha = 0.12f)
                     } else {
                         MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                     },
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(10.dp),
                     border = BorderStroke(
                         1.dp,
                         if (uiState.testingRestoreDeletedEnabled) AmberAccent.copy(alpha = 0.4f) else CardBorder.copy(alpha = 0.3f)
@@ -261,7 +262,7 @@ fun VaultRestoreScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -271,25 +272,29 @@ fun VaultRestoreScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Science,
+                                imageVector = Icons.Default.RestoreFromTrash,
                                 contentDescription = null,
                                 tint = if (uiState.testingRestoreDeletedEnabled) AmberAccent else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(16.dp)
                             )
                             Column {
                                 Text(
-                                    text = "Testing Feature: Recover Deleted Messages",
+                                    text = "Recently Deleted Folder Recovery",
                                     fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
                                     text = if (uiState.testingRestoreDeletedEnabled) {
-                                        "ON — Snapshots saved on permanent delete so you can restore & re-test"
+                                        "ON • 30-day retention & batch inbox restore"
                                     } else {
-                                        "OFF — Permanent deletions are not recorded for test recovery"
+                                        "OFF • Deletions bypass Recently Deleted"
                                     },
                                     fontSize = 10.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -313,7 +318,7 @@ fun VaultRestoreScreen(
                             } else {
                                 "$totalQuarantinedSelectedCount selected"
                             },
-                            fontSize = 13.sp,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.primary
                         )
@@ -329,9 +334,10 @@ fun VaultRestoreScreen(
                                     viewModel.selectAllQuarantined(!allVisibleQuarantinedSelected)
                                 }
                             },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                             modifier = Modifier.testTag("vault_select_all")
                         ) {
-                            Text(if (allVisibleQuarantinedSelected) "Deselect All" else "Select All")
+                            Text(if (allVisibleQuarantinedSelected) "Deselect All" else "Select All", fontSize = 12.sp)
                         }
                     }
                 } else if (selectedVaultTab == 1 && visibleDeletedTest.isNotEmpty()) {
@@ -346,7 +352,7 @@ fun VaultRestoreScreen(
                             } else {
                                 "$totalDeletedSelectedCount selected to restore"
                             },
-                            fontSize = 13.sp,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = AmberAccent
                         )
@@ -362,9 +368,10 @@ fun VaultRestoreScreen(
                                     viewModel.selectAllDeletedTest(!allVisibleDeletedSelected)
                                 }
                             },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                             modifier = Modifier.testTag("vault_test_select_all")
                         ) {
-                            Text(if (allVisibleDeletedSelected) "Deselect All" else "Select All")
+                            Text(if (allVisibleDeletedSelected) "Deselect All" else "Select All", fontSize = 12.sp)
                         }
                     }
                 }
@@ -504,7 +511,7 @@ fun VaultRestoreScreen(
                 }
             }
         } else {
-            // Deleted (Test Recovery) Tab Content
+            // Recently Deleted Folder Content (Batch Selection & Restoration)
             if (visibleDeletedTest.isEmpty()) {
                 Box(
                     modifier = Modifier
@@ -525,20 +532,20 @@ fun VaultRestoreScreen(
                         )
                         Text(
                             text = if (activeVaultFilter) {
-                                "No Deleted Snapshots for Selected Contacts"
+                                "No Recently Deleted SMS for Selected Contacts"
                             } else {
-                                "No Deleted Test Snapshots"
+                                "Recently Deleted Folder is Empty"
                             },
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
                             text = when {
-                                activeVaultFilter -> "Clear the contact filter to view snapshots from other senders."
+                                activeVaultFilter -> "Clear the contact filter to view recently deleted messages from other senders."
                                 uiState.testingRestoreDeletedEnabled ->
-                                    "When you permanently delete messages while testing is ON, snapshots appear here so you can restore them back to your inbox and re-verify rules."
+                                    "Deleted SMS messages are held here for 30 days. Select one or more messages to batch restore them back to your Primary Inbox."
                                 else ->
-                                    "Turn on 'Testing Feature: Recover Deleted Messages' above to capture snapshots of deleted messages for test restoration."
+                                    "Turn on 'Recently Deleted Folder Recovery' above so deleted SMS are kept here for batch restoration."
                             },
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -575,36 +582,91 @@ fun VaultRestoreScreen(
                     shadowElevation = 8.dp,
                     color = MaterialTheme.colorScheme.surface
                 ) {
-                    Row(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 12.dp)
                             .navigationBarsPadding(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Button(
-                            onClick = { viewModel.restoreSelectedDeletedTestMessages() },
-                            enabled = totalDeletedSelectedCount > 0,
-                            colors = ButtonDefaults.buttonColors(containerColor = AmberAccent),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(48.dp)
-                                .testTag("restore_deleted_test_button")
-                        ) {
-                            Icon(
-                                Icons.Default.RestoreFromTrash,
-                                contentDescription = null,
-                                tint = Color.Black,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
+                        if (uiState.isBatchRestoring) {
+                            val total = max(1, uiState.batchRestoreProgressTotal)
+                            val progress = (uiState.batchRestoreProgressCurrent.toFloat() / total.toFloat()).coerceIn(0f, 1f)
                             Text(
-                                text = "Restore Deleted ($totalDeletedSelectedCount) for Testing",
-                                color = Color.Black,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp
+                                text = "Restoring ${uiState.batchRestoreProgressCurrent} of ${uiState.batchRestoreProgressTotal} messages to Primary Inbox...",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = AmberAccent
                             )
+                            LinearProgressIndicator(
+                                progress = { progress },
+                                color = AmberAccent,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("batch_restore_progress_bar")
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Button(
+                                onClick = { viewModel.batchRestoreRecentlyDeleted() },
+                                enabled = totalDeletedSelectedCount > 0 && !uiState.isBatchRestoring,
+                                colors = ButtonDefaults.buttonColors(containerColor = AmberAccent),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .weight(1.35f)
+                                    .height(48.dp)
+                                    .testTag("restore_deleted_test_button")
+                            ) {
+                                Icon(
+                                    Icons.Default.RestoreFromTrash,
+                                    contentDescription = null,
+                                    tint = Color.Black,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Restore ($totalDeletedSelectedCount) to Inbox",
+                                    color = Color.Black,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+
+                            OutlinedButton(
+                                onClick = { viewModel.permanentlyDeleteSelectedRecentlyDeleted() },
+                                enabled = totalDeletedSelectedCount > 0 && !uiState.isBatchRestoring,
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = RedDestructive),
+                                border = ButtonDefaults.outlinedButtonBorder().copy(
+                                    brush = androidx.compose.ui.graphics.SolidColor(RedDestructive.copy(alpha = 0.6f))
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp)
+                                    .testTag("purge_selected_deleted_button")
+                            ) {
+                                Icon(
+                                    Icons.Default.DeleteForever,
+                                    contentDescription = null,
+                                    tint = RedDestructive,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Purge ($totalDeletedSelectedCount)",
+                                    color = RedDestructive,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
                     }
                 }

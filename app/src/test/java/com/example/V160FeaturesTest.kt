@@ -175,7 +175,13 @@ class V160FeaturesTest {
     fun testingRestoreDeletedToggle_savesAndRestoresDeletedMessages() {
         val app = ApplicationProvider.getApplicationContext<android.app.Application>()
         val dao = AppDatabase.getInstance(app).cleanSmsDao()
-        runBlocking { dao.clearAllDeletedTestSnapshots() }
+        runBlocking {
+            dao.clearAllQuarantine()
+            dao.clearAllDeletedTestSnapshots()
+            dao.clearInboxCache()
+            dao.clearFilterSelections(com.example.data.local.ContactFilterSelectionEntity.SCOPE_SCANNER)
+            dao.clearFilterSelections(com.example.data.local.ContactFilterSelectionEntity.SCOPE_VAULT)
+        }
 
         val vm = CleanSmsViewModel(app)
         waitUntil { vm.uiState.value.classifiedMessages.any { it.isCleanCandidate && it.isSelected } }

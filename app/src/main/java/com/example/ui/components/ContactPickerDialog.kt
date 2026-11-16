@@ -46,14 +46,16 @@ fun ContactPickerDialog(
         }
     }
 
-    val filteredContacts = remember(availableContacts, searchQuery) {
-        val q = searchQuery.trim().lowercase()
-        if (q.isEmpty()) {
-            availableContacts
-        } else {
-            availableContacts.filter { c ->
-                c.displayName.lowercase().contains(q) ||
-                        c.phoneNumbers.any { it.lowercase().contains(q) }
+    val filteredContacts by produceState(initialValue = availableContacts, availableContacts, searchQuery) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            val q = searchQuery.trim().lowercase()
+            if (q.isEmpty()) {
+                availableContacts
+            } else {
+                availableContacts.filter { c ->
+                    c.displayName.lowercase().contains(q) ||
+                            c.phoneNumbers.any { it.lowercase().contains(q) }
+                }
             }
         }
     }

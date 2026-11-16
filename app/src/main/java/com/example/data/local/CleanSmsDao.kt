@@ -86,6 +86,22 @@ interface CleanSmsDao {
     @Query("DELETE FROM deleted_test_snapshots")
     suspend fun clearAllDeletedTestSnapshots()
 
+    @Query("DELETE FROM deleted_test_snapshots WHERE deletedAt > 0 AND deletedAt < :cutoffEpochMs")
+    suspend fun purgeExpiredDeletedSnapshots(cutoffEpochMs: Long)
+
+    @Transaction
+    suspend fun restoreDeletedBatchToInboxCache(
+        ids: List<String>,
+        restoredCacheEntities: List<InboxMessageCacheEntity>
+    ) {
+        if (restoredCacheEntities.isNotEmpty()) {
+            upsertInboxCache(restoredCacheEntities)
+        }
+        ids.chunked(500).forEach { batch ->
+            deleteTestSnapshotsByIds(batch)
+        }
+    }
+
     // =========================================================================
     // Filter By Contact: Background Threading with Room @Query + Coroutine Flow
     // =========================================================================

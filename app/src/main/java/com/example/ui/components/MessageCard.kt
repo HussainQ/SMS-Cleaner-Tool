@@ -192,6 +192,23 @@ fun MessageCard(
                                 )
                             }
                         }
+
+                        if (message.deletedAt != null) {
+                            val daysElapsed = ((System.currentTimeMillis() - message.deletedAt) / (24L * 60L * 60L * 1000L)).coerceAtLeast(0L)
+                            val daysLeft = (30L - daysElapsed).coerceIn(1L, 30L)
+                            Surface(
+                                color = AmberAccent.copy(alpha = 0.18f),
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Text(
+                                    text = "${daysLeft}d left",
+                                    color = AmberAccent,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
                     }
 
                     Text(

@@ -237,6 +237,29 @@ class ContactFilterRepository(
     }
 
     /**
+     * Atomically moves a batch of messages from Recently Deleted back into the cached Inbox table
+     * so Room's Filter By Contact & classification Flows immediately reflect restored items.
+     */
+    suspend fun restoreDeletedBatchToInboxCache(restoredItems: List<SmsMessageItem>) = withContext(ioDispatcher) {
+        if (restoredItems.isEmpty()) return@withContext
+        val cacheEntities = restoredItems.map { InboxMessageCacheEntity.fromSmsMessageItem(it) }
+        val ids = restoredItems.map { it.id }
+        dao.restoreDeletedBatchToInboxCache(ids = ids, restoredCacheEntities = cacheEntities)
+    }
+
+    suspend fun deleteRecentlyDeletedByIdsBatch(ids: List<String>) = withContext(ioDispatcher) {
+        if (ids.isEmpty()) return@withContext
+        ids.chunked(500).forEach { batch ->
+            dao.deleteTestSnapshotsByIds(batch)
+        }
+    }
+
+    suspend fun purgeExpiredRecentlyDeleted(retentionDays: Int = 30) = withContext(ioDispatcher) {
+        val cutoff = System.currentTimeMillis() - (retentionDays.toLong() * 24L * 60L * 60L * 1000L)
+        dao.purgeExpiredDeletedSnapshots(cutoff)
+    }
+
+    /**
      * Toggles a single contact in Room (`contact_filter_selections`) and returns `true` if now checked.
      */
     suspend fun toggleSelectedContact(scope: String, contact: ContactInfo): Boolean = withContext(ioDispatcher) {

@@ -10,6 +10,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToKey
 import androidx.compose.ui.test.performScrollToNode
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.test.core.app.ApplicationProvider
@@ -50,6 +51,10 @@ import java.io.File
 import java.net.InetSocketAddress
 import java.security.MessageDigest
 
+import com.example.data.local.AppDatabase
+import com.example.data.local.ContactFilterSelectionEntity
+import org.junit.After
+
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
 class ContactChecklistAndInAppUpdateTest {
@@ -62,6 +67,17 @@ class ContactChecklistAndInAppUpdateTest {
     @Before
     fun setUp() {
         app = ApplicationProvider.getApplicationContext()
+    }
+
+    @After
+    fun tearDown() {
+        val dao = AppDatabase.getInstance(app).cleanSmsDao()
+        runBlocking {
+            dao.clearAllQuarantine()
+            dao.clearAllDeletedTestSnapshots()
+            dao.clearFilterSelections(ContactFilterSelectionEntity.SCOPE_SCANNER)
+            dao.clearFilterSelections(ContactFilterSelectionEntity.SCOPE_VAULT)
+        }
     }
 
     @Test
@@ -262,6 +278,12 @@ class ContactChecklistAndInAppUpdateTest {
 
     @Test
     fun vaultScreen_contactFilterAndGroupReview_filtersListAndSelectsGroup() {
+        val dao = AppDatabase.getInstance(app).cleanSmsDao()
+        runBlocking {
+            dao.clearAllQuarantine()
+            dao.clearAllDeletedTestSnapshots()
+            dao.clearFilterSelections(ContactFilterSelectionEntity.SCOPE_VAULT)
+        }
         val vm = CleanSmsViewModel(app)
         composeRule.setContent {
             val state by vm.uiState.collectAsStateWithLifecycle()
@@ -306,10 +328,19 @@ class ContactChecklistAndInAppUpdateTest {
         composeRule.onNodeWithTag("vault_contact_filter_toggle").performClick()
         composeRule.waitForIdle()
 
-        composeRule.onNodeWithTag("vault_contact_filter_list")
-            .performScrollToNode(hasTestTag("vault_contact_filter_checkbox_${firstVaultContact.id}"))
+        composeRule.waitUntil(timeoutMillis = 5000L) {
+            ShadowLooper.idleMainLooper()
+            vm.uiState.value.vaultContactEntries.isNotEmpty()
+        }
         composeRule.onNodeWithTag("vault_contact_filter_checkbox_${firstVaultContact.id}").performClick()
-        composeRule.waitForIdle()
+        composeRule.waitUntil(timeoutMillis = 5000L) {
+            ShadowLooper.idleMainLooper()
+            val state = vm.uiState.value
+            state.vaultFilterByContactEnabled &&
+                state.vaultSelectedContacts.any { it.id == firstVaultContact.id } &&
+                state.filteredQuarantinedMessages.isNotEmpty() &&
+                state.filteredQuarantinedMessages.size < state.quarantinedMessages.size
+        }
 
         assertTrue(vm.uiState.value.vaultFilterByContactEnabled)
         assertTrue(vm.uiState.value.vaultGroupByContact)
@@ -322,17 +353,15 @@ class ContactChecklistAndInAppUpdateTest {
         vm.selectAllQuarantined(false)
         composeRule.waitForIdle()
 
-        val matchingVaultMsg = vm.uiState.value.quarantinedMessages.first {
-            ContactThreadHelper.messageMatchesTokens(
-                it,
-                ContactThreadHelper.collectTokensForContacts(listOf(firstVaultContact))
-            )
-        }
+        val matchingVaultMsg = vm.uiState.value.filteredQuarantinedMessages.first()
         val groupKey = ContactThreadHelper.vaultGroupKey(matchingVaultMsg)
         composeRule.onNodeWithTag("vault_quarantine_list")
-            .performScrollToNode(hasTestTag("vault_group_select_$groupKey"))
+            .performScrollToKey("header_quar_$groupKey")
         composeRule.onNodeWithTag("vault_group_select_$groupKey").performClick()
-        composeRule.waitForIdle()
+        composeRule.waitUntil(timeoutMillis = 5000L) {
+            ShadowLooper.idleMainLooper()
+            vm.uiState.value.quarantinedMessages.any { it.id == matchingVaultMsg.id && it.isSelected }
+        }
 
         val updatedMatching = vm.uiState.value.quarantinedMessages.first { it.id == matchingVaultMsg.id }
         assertTrue(updatedMatching.isSelected)

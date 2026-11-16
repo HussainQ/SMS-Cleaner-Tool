@@ -13,6 +13,7 @@ import com.example.update.GitHubAssetDto
 import com.example.update.GitHubReleaseDto
 import com.example.update.GitHubUpdateRepository
 import com.example.update.SemanticVersion
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -311,6 +312,35 @@ class UpdateAndMigrationTest {
                 )
             )
             assertEquals(1, dao.getAllDeletedTestSnapshots().size)
+
+            // Verify newly migrated v5 Contact Filter tables work cleanly
+            dao.upsertFilterSelection(
+                com.example.data.local.ContactFilterSelectionEntity(
+                    compositeKey = "SCANNER:mom",
+                    scope = "SCANNER",
+                    contactId = "mom",
+                    displayName = "Mom",
+                    phoneNumbersCsv = "+15550009999",
+                    matchTokensCsv = ",mom,+15550009999,5550009999,",
+                    threadId = 99L
+                )
+            )
+            dao.upsertInboxCache(
+                listOf(
+                    com.example.data.local.InboxMessageCacheEntity(
+                        id = "v5_msg_1",
+                        address = "+15550009999",
+                        addressKey = "5550009999",
+                        body = "Migrated cache item",
+                        date = 1700000003000L,
+                        threadId = 99L,
+                        contactId = "mom",
+                        contactName = "Mom",
+                        contactNameLower = "mom"
+                    )
+                )
+            )
+            assertEquals(listOf(99L), dao.observeSelectedScannerThreadIdsFlow().first())
         }
         upgradedDb.close()
         context.deleteDatabase(dbName)
@@ -434,19 +464,25 @@ class UpdateAndMigrationTest {
 
         val manager = AppUpgradeManager(context)
         val report = manager.ensureStateMigrated(
-            targetVersionCode = 10600,
-            targetVersionName = "1.6.0-pre.1"
+            targetVersionCode = 10602,
+            targetVersionName = "1.6.2-pre.1"
         )
 
         assertTrue(report.wasMultiVersionJump)
         assertEquals("1.1.0", report.previousVersionName)
         assertEquals(10100, report.previousVersionCode)
-        assertEquals(4, report.appliedMilestones.size)
+        assertEquals(5, report.databaseSchemaVersion)
+        assertEquals(6, report.appliedMilestones.size)
+        assertTrue(report.appliedMilestones.any { it.contains("v1.6.2") })
+
+        // Verify v1.6.2-pre.1 orders cleanly above v1.6.1-pre.1
+        assertTrue(SemanticVersion.parse("v1.6.2-pre.1")!! > SemanticVersion.parse("v1.6.1-pre.1")!!)
+        assertEquals(10602, SemanticVersion.parse("v1.6.2-pre.1")!!.toVersionCode())
 
         // Second call at same version should be idempotent
         val secondReport = manager.ensureStateMigrated(
-            targetVersionCode = 10600,
-            targetVersionName = "1.6.0-pre.1"
+            targetVersionCode = 10602,
+            targetVersionName = "1.6.2-pre.1"
         )
         assertFalse(secondReport.wasMultiVersionJump)
         assertTrue(secondReport.appliedMilestones.isEmpty())

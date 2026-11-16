@@ -139,7 +139,8 @@ data class DeletedTestSnapshotEntity(
             matchReason = matchReason,
             otpCode = otpCode,
             isQuarantined = false,
-            isSelected = false
+            isSelected = false,
+            deletedAt = deletedAt.takeIf { it > 0L }
         )
     }
 

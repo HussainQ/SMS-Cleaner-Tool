@@ -1,11 +1,11 @@
-# ⚠️ CleanSMS `v1.6.1-pre.1` — Non-Production Pre-Release
+# ⚠️ CleanSMS `v1.6.2-pre.1` — Non-Production Pre-Release
 
 > [!WARNING]
 > **NON-PRODUCTION BUILD — FOR LOCAL DEVICE TESTING PURPOSES ONLY**
 >
 > This release is strictly a **Pre-Release (`prerelease: true`)** intended exclusively for **local device evaluation, QA verification, and sandbox testing**.
 > - **DO NOT** deploy or distribute this build to production environments or commercial app stores.
-> - **Upgrading from a previous release (One-Time Uninstall Notice):** If your device has an earlier CleanSMS release installed under a **different package name (`applicationId`)** or signed with an **earlier ephemeral CI keystore**, Android will reject in-place installation with `"App not installed as package conflicts with an existing package"`. **Export/back up any custom rules if needed and uninstall the previous CleanSMS app before installing `v1.6.1-pre.1`.** Going forward, the Application ID remains locked at `com.aistudio.cleansms.jrvxpq` with persistent CI signing (and optional `DEBUG_KEYSTORE_BASE64` / `RELEASE_KEYSTORE_BASE64` secrets) so future updates install in-place cleanly.
+> - **In-Place Upgrades from `v1.6.1-pre.1`:** Installs directly over `v1.6.1-pre.1` (using `com.aistudio.cleansms.jrvxpq` and the persistent CI/debug signing keystore). If you still have an older release under a different package ID or an earlier ephemeral keystore, uninstall it first before installing `v1.6.2-pre.1` to avoid Android's *"App not installed as package conflicts with an existing package"* error.
 
 ---
 
@@ -13,51 +13,43 @@
 
 | Field | Value |
 | :--- | :--- |
-| **Release Tag** | `v1.6.1-pre.1` |
+| **Release Tag** | `v1.6.2-pre.1` |
 | **Release Type** | `Pre-Release` (`prerelease: true`, `make_latest: false`) |
 | **Target Environment** | Non-Production • Local Device Testing Only |
 | **Application ID** | `com.aistudio.cleansms.jrvxpq` |
-| **Version Name** | `1.6.1-pre.1` |
-| **Version Code** | `10601` |
+| **Version Name** | `1.6.2-pre.1` |
+| **Version Code** | `10602` |
+| **Room Schema Version** | `v5` (automatic non-destructive migrations `v1 → v5`) |
 | **Min / Target SDK** | API 24 (Android 7.0) / API 36 (Android 16) |
-| **Artifact Name** | `CleanSMS-v1.6.1-pre.1-nonprod-local-test.apk` |
+| **Artifact Name** | `CleanSMS-v1.6.2-pre.1-nonprod-local-test.apk` |
 
 ---
 
-## ✨ What's New in `v1.6.1-pre.1`
+## ✨ What's New in `v1.6.2-pre.1`
 
-### 1. Fixed Filter By Contact + De-duplicate Text Messages Bug
-- Fixed `SmsClassifier` so enabling **Filter By Contact (`Target Selected`)** with **De-duplicate Text Messages** (or other rules) runs active rules across **all threads belonging to the selected contact(s)** rather than flagging all messages of the contact outright.
-- Preserves the original/master message copy and all non-duplicate normal messages for targeted contacts while removing only redundant duplicate copies (and leaves unselected contacts untouched in both message selection and duplicate thread clusters).
+### 1. Background Threading via Room `@Query` + Coroutine `Flow` for Filter By Contact
+- Added Room v5 indexed tables (`inbox_message_cache`, `contact_filter_selections`) and SQLite indices (`threadId`, `address`, `addressKey`) on `quarantine_messages` and `deleted_test_snapshots` with automatic `MIGRATION_4_5`.
+- Moved **Filter By Contact** aggregation (`GROUP BY`), debounced live contact search (`LIKE`), Scanner thread ID resolution (`INNER JOIN`), and Vault/Recently Deleted contact filtering (`EXISTS`) into asynchronous Room `@Query` `Flow`s running on `Dispatchers.IO`, eliminating UI hitches during large 2,000–5,000+ message processing cycles.
 
-### 2. Refined Default SMS Role Detection & Status Indicator
-- Added `inspectDefaultSmsRoleStatus` in `TelephonyManagerHelper` and synced role state on window focus changes, `ON_START`/`ON_RESUME`, tab navigation, and activity results.
-- Replaced the **"Set as Default SMS App"** request button with a dedicated **"Default SMS App"** (`ACTIVE`) status indicator whenever CleanSMS holds the Default SMS role, with clear indicators across Scanner, Review, and Permanent Delete confirmation.
+### 2. Batch Restoration System in the Recently Deleted Folder
+- Upgraded the Vault's recovery tab into a dedicated **Recently Deleted** folder with automatic 30-day expiration pruning, remaining-days badges (`Xd left`), multi-select checkboxes, per-contact group selection, and **Select All**.
+- Added chunked (100-item) background batch restoration (**Restore (N) to Inbox**) with live progress indicator to move selected messages cleanly back to the Primary Inbox (and device Telephony SMS store when set as Default SMS App), plus **Purge (N)** and **Empty Trash**.
 
-### 3. Consistent Multi-Level Back Button Navigation
-- Replaced immediate app-exit behavior with hierarchical `BackHandler` dispatch factoring in window levels, in-screen sub-levels, and exact tab click order:
-  1. **Window & Nested Sub-Window Level:** Nested dialogs/pickers (`ContactPickerDialog` inside `AddCustomRuleSheet`, inline repo editor inside `AppUpdatesDialog`) collapse before dismissing top-level dialogs/bottom sheets.
-  2. **In-Screen Sub-Level:** Active Review search clears before resetting category filter chips to `All`; Vault **Deleted Test** returns to **Quarantine**; compact **Rules & Cloud** switches from **Cloud Backup** back to **Rules**.
-  3. **Tab History (Order of Clicks):** Bottom/Rail navigation maintains visited tab order so Back steps backward through clicked tabs down to **Scanner** before closing the app.
-
-### 4. Persistent CI Signing & In-App GitHub Release Updater
-- Updated GitHub Actions to persist/reuse the signing keystore (`DEBUG_KEYSTORE_BASE64` / `RELEASE_KEYSTORE_BASE64` or persistent CI cache) and avoid clobbering older release tags.
-- In-app GitHub Releases updater verifies versions via SemVer 2.0.0 (`HussainQ/SMS-Cleaner-Tool`), aggregates skipped changelogs, fetches `.sha256` digests, and runs non-destructive Room (`v1→v4`) + preferences migrations.
+### 3. Vault Contact Group Filter & Direct In-App APK Downloader
+- Included contact-checklist filtering & **Group by Contact** review in Vault alongside direct in-app GitHub release `.apk` downloading, SHA-256 verification, and Android `FileProvider` package installation (`v1.6.1-pre.1 → v1.6.2-pre.1`).
 
 ---
 
 ## 📲 Local Device Testing Instructions
 
-1. **If upgrading from an earlier conflicting package/ephemeral build (one-time step):**
-   - Back up any custom rules/messages if needed, then uninstall the old CleanSMS build so Android accepts the persistent signing key and `com.aistudio.cleansms.jrvxpq`.
-2. **Download & Verify the APK:**
-   - Download `CleanSMS-v1.6.1-pre.1-nonprod-local-test.apk` and its `.sha256` file from the GitHub Release assets (or pull directly via the in-app **Updates** button).
+1. **Direct In-App Update (from `v1.6.1-pre.1`):**
+   - Open **Updates** in CleanSMS (`v1.6.1-pre.1`), ensure **Include Pre-Releases** is ON, check `HussainQ/SMS-Cleaner-Tool`, and tap **Download & Install** directly inside the app.
+2. **Manual Download & Verify the APK:**
+   - Download `CleanSMS-v1.6.2-pre.1-nonprod-local-test.apk` and its `.sha256` file from the GitHub Release assets.
    ```bash
-   sha256sum -c CleanSMS-v1.6.1-pre.1-nonprod-local-test.apk.sha256
+   sha256sum -c CleanSMS-v1.6.2-pre.1-nonprod-local-test.apk.sha256
    ```
-3. **Install on Local Android Device:**
+3. **Install / Upgrade on Local Android Device:**
    ```bash
-   adb install -r CleanSMS-v1.6.1-pre.1-nonprod-local-test.apk
+   adb install -r CleanSMS-v1.6.2-pre.1-nonprod-local-test.apk
    ```
-4. **Maintaining Identical Signing Between AI Studio & GitHub Actions (Recommended):**
-   - In GitHub **Repository Settings → Secrets and variables → Actions**, add `DEBUG_KEYSTORE_BASE64` containing the base64-encoded `debug.keystore` so APKs exported from AI Studio and APKs built by GitHub Actions share the exact same certificate.

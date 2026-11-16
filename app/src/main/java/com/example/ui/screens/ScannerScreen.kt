@@ -708,10 +708,10 @@ private fun DetectionRulesCard(
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
 
-            // Testing Feature: Recover Permanently Deleted Messages Toggle
+            // Recently Deleted Folder Recovery Toggle
             FilterToggleRow(
-                title = "Testing: Recover Deleted Messages",
-                subtitle = "Keep local recovery snapshot of deleted messages (${uiState.deletedTestMessages.size} saved in Vault)",
+                title = "Recently Deleted Folder Recovery",
+                subtitle = "Keep deleted SMS for 30 days for batch inbox restoration (${uiState.deletedTestMessages.size} saved)",
                 icon = Icons.Default.RestoreFromTrash,
                 iconColor = AmberAccent,
                 checked = uiState.testingRestoreDeletedEnabled,
