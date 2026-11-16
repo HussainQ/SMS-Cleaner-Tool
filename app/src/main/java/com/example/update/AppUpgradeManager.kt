@@ -4,9 +4,9 @@ import android.content.Context
 import com.example.BuildConfig
 
 /**
- * Manages application-level upgrade state across arbitrary version jumps (e.g. v1.0.0 -> v1.6.2+).
- * Pairs with explicit Room DatabaseMigrations (v1 -> v2 -> v3 -> v4 -> v5) so updating directly from
- * any older release preserves rules, quarantined items, cloud snapshots, and telephony preferences.
+ * Manages application-level upgrade state across arbitrary version jumps (e.g. v1.0.0 -> v1.7.1+).
+ * Pairs with explicit Room DatabaseMigrations (v1 -> v2 -> v3 -> v4 -> v5 -> v6) so updating directly from
+ * any older release preserves rules, quarantined items, thread folder states, cloud snapshots, and telephony preferences.
  */
 class AppUpgradeManager(private val context: Context) {
 
@@ -95,6 +95,9 @@ class AppUpgradeManager(private val context: Context) {
             if (effectivePrev in 1 until 10700 && targetVersionCode >= 10700) {
                 applied.add("v1.7.0: Full SMS/MMS/RCS Messages landing tab, top conversation search & configurable Compact UI settings")
             }
+            if (effectivePrev in 1 until 10701 && targetVersionCode >= 10701) {
+                applied.add("v1.7.1: Cross-app Archived & Spam message folders (Room v6 + Telephony sync) & direct Compact UI toggle")
+            }
             if (prefs.getString(KEY_GITHUB_REPO, null)?.equals(LEGACY_PLACEHOLDER_REPO, ignoreCase = true) == true) {
                 prefs.edit().putString(KEY_GITHUB_REPO, DEFAULT_GITHUB_REPO).apply()
             }
@@ -117,7 +120,7 @@ class AppUpgradeManager(private val context: Context) {
             currentVersionCode = targetVersionCode,
             previousVersionName = prevName,
             previousVersionCode = prevCode,
-            databaseSchemaVersion = 5,
+            databaseSchemaVersion = 6,
             appliedMilestones = applied,
             wasMultiVersionJump = wasMultiVersionJump,
             migratedAtEpoch = migratedAt

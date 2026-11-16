@@ -10,6 +10,12 @@ enum class MessagingSendProtocol(val label: String, val shortBadge: String) {
     RCS("RCS Chat", "RCS")
 }
 
+enum class MessageFolderFilter(val label: String) {
+    INBOX("Inbox"),
+    ARCHIVED("Archived"),
+    SPAM("Spam")
+}
+
 data class ComposeAttachment(
     val uriString: String,
     val mimeType: String = "image/*",
@@ -28,7 +34,10 @@ data class ConversationThreadSummary(
     val unreadCount: Int,
     val protocol: MessageProtocol,
     val hasAttachments: Boolean,
-    val hasCleanableClutter: Boolean
+    val hasCleanableClutter: Boolean,
+    val isArchived: Boolean = false,
+    val isSpam: Boolean = false,
+    val folderSource: String = ""
 ) {
     val messageCount: Int get() = messages.size
     val isUnread: Boolean get() = unreadCount > 0
@@ -61,11 +70,13 @@ object MessagingHelper {
     /**
      * Groups raw/classified messages into conversation threads ordered newest-first,
      * with per-thread messages sorted chronologically (oldest -> newest) for chat rendering.
+     * Supports filtering by folder (Inbox, Archived, Spam), protocol, and live search query.
      */
     fun buildConversationThreads(
         messages: List<SmsMessageItem>,
         searchQuery: String = "",
-        protocolFilter: MessageProtocol? = null
+        protocolFilter: MessageProtocol? = null,
+        folderFilter: MessageFolderFilter? = MessageFolderFilter.INBOX
     ): List<ConversationThreadSummary> {
         if (messages.isEmpty()) return emptyList()
 
@@ -96,6 +107,15 @@ object MessagingHelper {
             }
             val threadId = chronological.firstOrNull { it.threadId > 0L }?.threadId ?: 0L
             val hasClutter = chronological.any { it.isCleanCandidate }
+            val isExplicitOverrideNotSpam = chronological.any {
+                it.folderSource == FOLDER_SOURCE_USER_OVERRIDE && !it.isSpamMarked
+            }
+            val isSpamThread = chronological.any { it.isSpamMarked } ||
+                (!isExplicitOverrideNotSpam && chronological.all { it.category == SmsCategory.SPAM })
+            val isArchivedThread = !isSpamThread && chronological.any { it.isArchived }
+            val resolvedSource = chronological.firstNotNullOfOrNull {
+                it.folderSource.takeIf { src -> src.isNotBlank() && src != FOLDER_SOURCE_USER_OVERRIDE }
+            } ?: if (isSpamThread) FOLDER_SOURCE_SMART_SPAM else ""
 
             ConversationThreadSummary(
                 threadKey = key,
@@ -108,14 +128,24 @@ object MessagingHelper {
                 unreadCount = unreadCount,
                 protocol = protocol,
                 hasAttachments = hasAttachments,
-                hasCleanableClutter = hasClutter
+                hasCleanableClutter = hasClutter,
+                isArchived = isArchivedThread,
+                isSpam = isSpamThread,
+                folderSource = resolvedSource
             )
         }.sortedByDescending { it.lastMessage.date }
 
+        val folderFiltered = when (folderFilter) {
+            MessageFolderFilter.INBOX -> summaries.filter { !it.isArchived && !it.isSpam }
+            MessageFolderFilter.ARCHIVED -> summaries.filter { it.isArchived && !it.isSpam }
+            MessageFolderFilter.SPAM -> summaries.filter { it.isSpam }
+            null -> summaries
+        }
+
         val protocolFiltered = if (protocolFilter == null) {
-            summaries
+            folderFiltered
         } else {
-            summaries.filter { thread ->
+            folderFiltered.filter { thread ->
                 thread.protocol == protocolFilter ||
                     thread.messages.any { it.protocol == protocolFilter }
             }
@@ -135,6 +165,12 @@ object MessagingHelper {
                 }
         }
     }
+
+    const val FOLDER_SOURCE_USER_OVERRIDE = "CLEANSMS_USER_OVERRIDE"
+    const val FOLDER_SOURCE_SMART_SPAM = "SMART_SPAM"
+    const val FOLDER_SOURCE_PROVIDER_ARCHIVED = "PROVIDER_ARCHIVED"
+    const val FOLDER_SOURCE_PROVIDER_SPAM = "PROVIDER_SPAM"
+    const val FOLDER_SOURCE_BLOCKED_NUMBER = "BLOCKED_NUMBER"
 
     /**
      * Parses external sms:, smsto:, mms:, mmsto: ACTION_SEND / ACTION_SENDTO intents.

@@ -265,5 +265,27 @@ interface CleanSmsDao {
         """
     )
     fun observeFilteredDeletedTestFlow(applyContactFilter: Boolean): Flow<List<DeletedTestSnapshotEntity>>
+
+    // =========================================================================
+    // Cross-App Archived & Spam Folder State Persistence
+    // =========================================================================
+
+    @Query("SELECT * FROM thread_folder_states ORDER BY updatedAt DESC")
+    fun observeAllThreadFolderStatesFlow(): Flow<List<ThreadFolderStateEntity>>
+
+    @Query("SELECT * FROM thread_folder_states ORDER BY updatedAt DESC")
+    suspend fun getAllThreadFolderStates(): List<ThreadFolderStateEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertThreadFolderState(state: ThreadFolderStateEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertThreadFolderStates(states: List<ThreadFolderStateEntity>)
+
+    @Query("DELETE FROM thread_folder_states WHERE stateKey = :stateKey")
+    suspend fun deleteThreadFolderStateByKey(stateKey: String)
+
+    @Query("DELETE FROM thread_folder_states")
+    suspend fun clearThreadFolderStates()
 }
 

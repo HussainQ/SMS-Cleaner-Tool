@@ -5,6 +5,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
 import android.os.Build
+import android.provider.BlockedNumberContract
 import android.provider.ContactsContract
 import android.provider.Telephony
 import android.telephony.SmsManager
@@ -12,6 +13,7 @@ import android.util.Log
 import com.example.model.ComposeAttachment
 import com.example.model.ContactInfo
 import com.example.model.MessageProtocol
+import com.example.model.MessagingHelper
 import com.example.model.PhoneNormalizer
 import com.example.model.RcsDeliveryStatus
 import com.example.model.SmsCategory
@@ -27,6 +29,12 @@ data class SendMessageResult(
     val persistedUri: Uri? = null,
     val statusNote: String = "",
     val errorMessage: String? = null
+)
+
+data class ProviderThreadState(
+    val isArchived: Boolean = false,
+    val isSpam: Boolean = false,
+    val folderSource: String = ""
 )
 
 class SmsRepository(private val context: Context) {
@@ -149,11 +157,105 @@ class SmsRepository(private val context: Context) {
     }
 
     /**
-     * Reads all SMS, MMS, and RCS-indicated messages from the device's Telephony ContentProvider
-     * and links them to device Contacts in O(1) per row if READ_CONTACTS is granted.
+     * Reads thread-level archive/spam/blocked metadata from Telephony Threads (`conversations?simple=true`)
+     * written by Google Messages, AOSP Messaging, Samsung/OEM apps, or third-party SMS clients.
+     */
+    fun readDeviceThreadStates(): Map<Long, ProviderThreadState> {
+        val states = HashMap<Long, ProviderThreadState>()
+        try {
+            val simpleThreadsUri = Uri.parse("content://mms-sms/conversations?simple=true")
+            val cursor = context.contentResolver.query(simpleThreadsUri, null, null, null, null)
+            cursor?.use { c ->
+                val idIdx = c.getColumnIndex(Telephony.Threads._ID).takeIf { it >= 0 }
+                    ?: c.getColumnIndex("_id")
+                if (idIdx < 0) return@use
+
+                val archivedIdx = listOf("archived", "is_archived", "archive")
+                    .firstNotNullOfOrNull { col -> c.getColumnIndex(col).takeIf { it >= 0 } } ?: -1
+                val spamIdx = listOf("spam", "is_spam", "spam_type", "junk", "blocked")
+                    .firstNotNullOfOrNull { col -> c.getColumnIndex(col).takeIf { it >= 0 } } ?: -1
+                val folderIdx = listOf("folder", "box")
+                    .firstNotNullOfOrNull { col -> c.getColumnIndex(col).takeIf { it >= 0 } } ?: -1
+
+                while (c.moveToNext()) {
+                    val threadId = c.getLong(idIdx)
+                    if (threadId <= 0L) continue
+                    val folderVal = if (folderIdx >= 0) c.getString(folderIdx)?.lowercase().orEmpty() else ""
+                    val isArchived = (archivedIdx >= 0 && c.getInt(archivedIdx) > 0) ||
+                        folderVal.contains("archiv")
+                    val isSpam = (spamIdx >= 0 && c.getInt(spamIdx) > 0) ||
+                        folderVal.contains("spam") || folderVal.contains("junk")
+                    if (isArchived || isSpam) {
+                        val src = when {
+                            isSpam -> MessagingHelper.FOLDER_SOURCE_PROVIDER_SPAM
+                            else -> MessagingHelper.FOLDER_SOURCE_PROVIDER_ARCHIVED
+                        }
+                        states[threadId] = ProviderThreadState(
+                            isArchived = isArchived,
+                            isSpam = isSpam,
+                            folderSource = src
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.d("CleanSMS", "Thread state query fallback: ${e.message}")
+        }
+        return states
+    }
+
+    /**
+     * Best-effort write of the standard Telephony Threads `archived` flag so Google Messages and other
+     * Android SMS apps observe Archive/Unarchive state when the provider permits updates.
+     */
+    fun updateTelephonyThreadArchived(threadId: Long, archived: Boolean): Boolean {
+        if (threadId <= 0L) return false
+        return try {
+            val values = ContentValues().apply {
+                put("archived", if (archived) 1 else 0)
+            }
+            val updated = context.contentResolver.update(
+                Uri.parse("content://mms-sms/conversations"),
+                values,
+                "${Telephony.Threads._ID} = ?",
+                arrayOf(threadId.toString())
+            )
+            updated > 0
+        } catch (e: Exception) {
+            Log.d("CleanSMS", "Telephony thread archive sync skipped: ${e.message}")
+            false
+        }
+    }
+
+    private fun isNumberBlockedSafely(address: String, cache: MutableMap<String, Boolean>): Boolean {
+        val key = PhoneNormalizer.primaryKey(address)
+        cache[key]?.let { return it }
+        val blocked = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N &&
+                BlockedNumberContract.canCurrentUserBlockNumbers(context)
+            ) {
+                BlockedNumberContract.isBlocked(context, address)
+            } else {
+                false
+            }
+        } catch (_: SecurityException) {
+            false
+        } catch (_: Throwable) {
+            false
+        }
+        cache[key] = blocked
+        return blocked
+    }
+
+    /**
+     * Reads all SMS, MMS, and RCS-indicated messages from the device's Telephony ContentProvider,
+     * preserves Telephony/cross-app Archived & Spam metadata, and links device Contacts in O(1).
      */
     fun readDeviceSms(contactIndex: Map<String, ContactInfo> = emptyMap()): List<SmsMessageItem> {
         val messageList = ArrayList<SmsMessageItem>(64)
+        val threadStates = readDeviceThreadStates()
+        val blockedCache = HashMap<String, Boolean>()
+
         try {
             val projection = arrayOf(
                 Telephony.Sms._ID,
@@ -165,13 +267,25 @@ class SmsRepository(private val context: Context) {
                 Telephony.Sms.READ
             )
 
-            val cursor = context.contentResolver.query(
-                Telephony.Sms.CONTENT_URI,
-                projection,
-                null,
-                null,
-                "${Telephony.Sms.DATE} DESC"
-            )
+            // Query null projection when needed so custom vendor archive/spam columns on SMS rows
+            // can also be detected when exposed, falling back cleanly to standard projection.
+            val cursor = try {
+                context.contentResolver.query(
+                    Telephony.Sms.CONTENT_URI,
+                    null,
+                    null,
+                    null,
+                    "${Telephony.Sms.DATE} DESC"
+                )
+            } catch (_: Exception) {
+                context.contentResolver.query(
+                    Telephony.Sms.CONTENT_URI,
+                    projection,
+                    null,
+                    null,
+                    "${Telephony.Sms.DATE} DESC"
+                )
+            }
 
             cursor?.use {
                 val idIdx = it.getColumnIndexOrThrow(Telephony.Sms._ID)
@@ -181,6 +295,10 @@ class SmsRepository(private val context: Context) {
                 val typeIdx = it.getColumnIndexOrThrow(Telephony.Sms.TYPE)
                 val threadIdIdx = it.getColumnIndex(Telephony.Sms.THREAD_ID)
                 val readIdx = it.getColumnIndex(Telephony.Sms.READ)
+                val rowArchivedIdx = listOf("archived", "is_archived")
+                    .firstNotNullOfOrNull { col -> it.getColumnIndex(col).takeIf { idx -> idx >= 0 } } ?: -1
+                val rowSpamIdx = listOf("spam", "is_spam", "spam_type", "blocked")
+                    .firstNotNullOfOrNull { col -> it.getColumnIndex(col).takeIf { idx -> idx >= 0 } } ?: -1
 
                 while (it.moveToNext()) {
                     val id = it.getLong(idIdx).toString()
@@ -190,6 +308,20 @@ class SmsRepository(private val context: Context) {
                     val type = it.getInt(typeIdx)
                     val threadId = if (threadIdIdx >= 0) it.getLong(threadIdIdx) else 0L
                     val isRead = if (readIdx >= 0) it.getInt(readIdx) == 1 else true
+
+                    val tState = threadStates[threadId]
+                    val rowArchived = rowArchivedIdx >= 0 && it.getInt(rowArchivedIdx) > 0
+                    val rowSpam = rowSpamIdx >= 0 && it.getInt(rowSpamIdx) > 0
+                    val isBlocked = isNumberBlockedSafely(address, blockedCache)
+
+                    val isArchived = rowArchived || (tState?.isArchived == true)
+                    val isSpamMarked = rowSpam || isBlocked || (tState?.isSpam == true)
+                    val folderSource = when {
+                        isBlocked -> MessagingHelper.FOLDER_SOURCE_BLOCKED_NUMBER
+                        rowSpam || tState?.isSpam == true -> MessagingHelper.FOLDER_SOURCE_PROVIDER_SPAM
+                        isArchived -> MessagingHelper.FOLDER_SOURCE_PROVIDER_ARCHIVED
+                        else -> ""
+                    }
 
                     // Check for RCS indicators: conversation threads, JIDs, or E.164 phone chats
                     val isRcsChat = threadId > 0 && (address.startsWith("+") || address.contains("@"))
@@ -214,7 +346,10 @@ class SmsRepository(private val context: Context) {
                             } else null,
                             contactName = linkedContact?.displayName,
                             contactId = linkedContact?.id,
-                            isRead = isRead || type != Telephony.Sms.MESSAGE_TYPE_INBOX
+                            isRead = isRead || type != Telephony.Sms.MESSAGE_TYPE_INBOX,
+                            isArchived = isArchived,
+                            isSpamMarked = isSpamMarked,
+                            folderSource = folderSource
                         )
                     )
                 }
@@ -223,7 +358,7 @@ class SmsRepository(private val context: Context) {
             Log.e("CleanSMS", "Error reading device SMS/RCS: ${e.message}")
         }
 
-        val mmsList = readDeviceMms(contactIndex)
+        val mmsList = readDeviceMms(contactIndex, threadStates, blockedCache)
         if (mmsList.isNotEmpty()) {
             messageList.addAll(mmsList)
             messageList.sortByDescending { it.date }
@@ -232,9 +367,14 @@ class SmsRepository(private val context: Context) {
     }
 
     /**
-     * Reads MMS messages from content://mms along with participant address and text/media parts.
+     * Reads MMS messages from content://mms along with participant address, text/media parts,
+     * and inherited thread archive/spam/blocked status.
      */
-    fun readDeviceMms(contactIndex: Map<String, ContactInfo> = emptyMap()): List<SmsMessageItem> {
+    fun readDeviceMms(
+        contactIndex: Map<String, ContactInfo> = emptyMap(),
+        threadStates: Map<Long, ProviderThreadState> = emptyMap(),
+        blockedCache: MutableMap<String, Boolean> = HashMap()
+    ): List<SmsMessageItem> {
         val mmsItems = ArrayList<SmsMessageItem>(16)
         try {
             val projection = arrayOf(
@@ -274,6 +414,17 @@ class SmsRepository(private val context: Context) {
                     val address = queryMmsParticipantAddress(mmsId, isInbox) ?: "Unknown"
                     val (bodyText, attachUri, attachMime, attachName) = queryMmsParts(mmsId)
 
+                    val tState = threadStates[threadId]
+                    val isBlocked = isNumberBlockedSafely(address, blockedCache)
+                    val isArchived = tState?.isArchived == true
+                    val isSpamMarked = isBlocked || (tState?.isSpam == true)
+                    val folderSource = when {
+                        isBlocked -> MessagingHelper.FOLDER_SOURCE_BLOCKED_NUMBER
+                        tState?.isSpam == true -> MessagingHelper.FOLDER_SOURCE_PROVIDER_SPAM
+                        isArchived -> MessagingHelper.FOLDER_SOURCE_PROVIDER_ARCHIVED
+                        else -> ""
+                    }
+
                     val linkedContact = if (contactIndex.isNotEmpty()) {
                         contactIndex[PhoneNormalizer.primaryKey(address)]
                             ?: contactIndex[address.trim().lowercase()]
@@ -294,7 +445,10 @@ class SmsRepository(private val context: Context) {
                             attachmentUri = attachUri,
                             attachmentMimeType = attachMime,
                             attachmentLabel = attachName,
-                            mmsSubject = subject
+                            mmsSubject = subject,
+                            isArchived = isArchived,
+                            isSpamMarked = isSpamMarked,
+                            folderSource = folderSource
                         )
                     )
                 }
@@ -1090,6 +1244,34 @@ class SmsRepository(private val context: Context) {
                 protocol = MessageProtocol.SMS,
                 threadId = 206L,
                 category = SmsCategory.NORMAL
+            ),
+
+            // ARCHIVED CONVERSATION (synced from Google Messages / messaging app archive)
+            SmsMessageItem(
+                id = "demo_archived_1",
+                address = "+1 (555) 210-4488",
+                contactName = "Oakwood Leasing",
+                contactId = "demo_contact_lease",
+                body = "Your 2026 lease renewal paperwork is complete. Reach out anytime if you need a copy.",
+                date = now - (7 * oneDay),
+                protocol = MessageProtocol.SMS,
+                threadId = 301L,
+                category = SmsCategory.NORMAL,
+                isArchived = true,
+                folderSource = MessagingHelper.FOLDER_SOURCE_PROVIDER_ARCHIVED
+            ),
+
+            // CROSS-APP SPAM THREAD (marked as spam by Google Messages / external SMS app)
+            SmsMessageItem(
+                id = "demo_spam_crossapp_1",
+                address = "+18885559922",
+                body = "Final notice from carrier billing desk: Update your payment details immediately or service pauses.",
+                date = now - (4 * oneHour),
+                protocol = MessageProtocol.SMS,
+                threadId = 302L,
+                category = SmsCategory.SPAM,
+                isSpamMarked = true,
+                folderSource = MessagingHelper.FOLDER_SOURCE_PROVIDER_SPAM
             )
         )
     }

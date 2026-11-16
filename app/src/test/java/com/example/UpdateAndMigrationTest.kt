@@ -471,7 +471,7 @@ class UpdateAndMigrationTest {
         assertTrue(report.wasMultiVersionJump)
         assertEquals("1.1.0", report.previousVersionName)
         assertEquals(10100, report.previousVersionCode)
-        assertEquals(5, report.databaseSchemaVersion)
+        assertEquals(6, report.databaseSchemaVersion)
         assertEquals(6, report.appliedMilestones.size)
         assertTrue(report.appliedMilestones.any { it.contains("v1.6.2") })
 
@@ -532,5 +532,216 @@ class UpdateAndMigrationTest {
         assertFalse(manager.isCompactMessagesUi())
         manager.setCompactMessagesUi(true)
         assertTrue(manager.isCompactMessagesUi())
+    }
+
+    @Test
+    fun roomMigration_v5ToV6_preservesInboxCacheAndCreatesThreadFolderStates() {
+        val dbName = "migration_v5_v6_test.db"
+        context.deleteDatabase(dbName)
+        val dbFile = context.getDatabasePath(dbName)
+        dbFile.parentFile?.mkdirs()
+
+        SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { sqlite ->
+            sqlite.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `quarantine_messages` (
+                    `id` TEXT NOT NULL,
+                    `address` TEXT NOT NULL,
+                    `addressKey` TEXT NOT NULL,
+                    `body` TEXT NOT NULL,
+                    `date` INTEGER NOT NULL,
+                    `categoryString` TEXT NOT NULL,
+                    `matchReason` TEXT NOT NULL,
+                    `otpCode` TEXT,
+                    `protocolString` TEXT NOT NULL,
+                    `threadId` INTEGER NOT NULL,
+                    `isRcsChat` INTEGER NOT NULL,
+                    `contactId` TEXT,
+                    `contactName` TEXT,
+                    `type` INTEGER NOT NULL,
+                    `quarantinedAt` INTEGER NOT NULL,
+                    PRIMARY KEY(`id`)
+                )
+                """.trimIndent()
+            )
+            sqlite.execSQL("CREATE INDEX IF NOT EXISTS `index_quarantine_messages_threadId` ON `quarantine_messages` (`threadId`)")
+            sqlite.execSQL("CREATE INDEX IF NOT EXISTS `index_quarantine_messages_address` ON `quarantine_messages` (`address`)")
+            sqlite.execSQL("CREATE INDEX IF NOT EXISTS `index_quarantine_messages_addressKey` ON `quarantine_messages` (`addressKey`)")
+            sqlite.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `deleted_test_snapshots` (
+                    `id` TEXT NOT NULL,
+                    `address` TEXT NOT NULL,
+                    `addressKey` TEXT NOT NULL,
+                    `body` TEXT NOT NULL,
+                    `date` INTEGER NOT NULL,
+                    `type` INTEGER NOT NULL,
+                    `categoryString` TEXT NOT NULL,
+                    `matchReason` TEXT NOT NULL,
+                    `otpCode` TEXT,
+                    `protocolString` TEXT NOT NULL,
+                    `threadId` INTEGER NOT NULL,
+                    `isRcsChat` INTEGER NOT NULL,
+                    `contactId` TEXT,
+                    `contactName` TEXT,
+                    `deletedAt` INTEGER NOT NULL,
+                    PRIMARY KEY(`id`)
+                )
+                """.trimIndent()
+            )
+            sqlite.execSQL("CREATE INDEX IF NOT EXISTS `index_deleted_test_snapshots_threadId` ON `deleted_test_snapshots` (`threadId`)")
+            sqlite.execSQL("CREATE INDEX IF NOT EXISTS `index_deleted_test_snapshots_address` ON `deleted_test_snapshots` (`address`)")
+            sqlite.execSQL("CREATE INDEX IF NOT EXISTS `index_deleted_test_snapshots_addressKey` ON `deleted_test_snapshots` (`addressKey`)")
+            sqlite.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `custom_rules` (
+                    `id` TEXT NOT NULL,
+                    `name` TEXT NOT NULL,
+                    `senderFilter` TEXT NOT NULL,
+                    `contactFilter` TEXT NOT NULL,
+                    `keywords` TEXT NOT NULL,
+                    `matchAnyKeyword` INTEGER NOT NULL,
+                    `olderThanDays` INTEGER,
+                    `startDateEpoch` INTEGER,
+                    `endDateEpoch` INTEGER,
+                    `isEnabled` INTEGER NOT NULL,
+                    `createdAt` INTEGER NOT NULL,
+                    PRIMARY KEY(`id`)
+                )
+                """.trimIndent()
+            )
+            sqlite.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `backup_records` (
+                    `id` TEXT NOT NULL,
+                    `provider` TEXT NOT NULL,
+                    `backupTimestamp` INTEGER NOT NULL,
+                    `messageCount` INTEGER NOT NULL,
+                    `fileName` TEXT NOT NULL,
+                    `sizeBytes` INTEGER NOT NULL,
+                    `fileContentJson` TEXT NOT NULL,
+                    PRIMARY KEY(`id`)
+                )
+                """.trimIndent()
+            )
+            sqlite.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `oauth_credentials` (
+                    `serviceId` TEXT NOT NULL,
+                    `serviceName` TEXT NOT NULL,
+                    `accountName` TEXT NOT NULL,
+                    `accessToken` TEXT NOT NULL,
+                    `tokenType` TEXT NOT NULL,
+                    `scopes` TEXT NOT NULL,
+                    `authorizedAt` INTEGER NOT NULL,
+                    `expiresAt` INTEGER NOT NULL,
+                    `isLocallyStored` INTEGER NOT NULL,
+                    PRIMARY KEY(`serviceId`)
+                )
+                """.trimIndent()
+            )
+            sqlite.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `inbox_message_cache` (
+                    `id` TEXT NOT NULL,
+                    `address` TEXT NOT NULL,
+                    `addressKey` TEXT NOT NULL,
+                    `body` TEXT NOT NULL,
+                    `date` INTEGER NOT NULL,
+                    `type` INTEGER NOT NULL,
+                    `threadId` INTEGER NOT NULL,
+                    `protocolString` TEXT NOT NULL,
+                    `isRcsChat` INTEGER NOT NULL,
+                    `contactId` TEXT,
+                    `contactName` TEXT,
+                    `contactNameLower` TEXT NOT NULL,
+                    PRIMARY KEY(`id`)
+                )
+                """.trimIndent()
+            )
+            sqlite.execSQL("CREATE INDEX IF NOT EXISTS `index_inbox_message_cache_threadId` ON `inbox_message_cache` (`threadId`)")
+            sqlite.execSQL("CREATE INDEX IF NOT EXISTS `index_inbox_message_cache_addressKey` ON `inbox_message_cache` (`addressKey`)")
+            sqlite.execSQL("CREATE INDEX IF NOT EXISTS `index_inbox_message_cache_contactId` ON `inbox_message_cache` (`contactId`)")
+            sqlite.execSQL("CREATE INDEX IF NOT EXISTS `index_inbox_message_cache_contactNameLower` ON `inbox_message_cache` (`contactNameLower`)")
+            sqlite.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `contact_filter_selections` (
+                    `compositeKey` TEXT NOT NULL,
+                    `scope` TEXT NOT NULL,
+                    `contactId` TEXT NOT NULL,
+                    `displayName` TEXT NOT NULL,
+                    `phoneNumbersCsv` TEXT NOT NULL,
+                    `matchTokensCsv` TEXT NOT NULL,
+                    `isFromDeviceContacts` INTEGER NOT NULL,
+                    `threadId` INTEGER,
+                    `selectedAt` INTEGER NOT NULL,
+                    PRIMARY KEY(`compositeKey`)
+                )
+                """.trimIndent()
+            )
+            sqlite.execSQL("CREATE INDEX IF NOT EXISTS `index_contact_filter_selections_scope` ON `contact_filter_selections` (`scope`)")
+            sqlite.execSQL("CREATE INDEX IF NOT EXISTS `index_contact_filter_selections_threadId` ON `contact_filter_selections` (`threadId`)")
+            sqlite.execSQL(
+                """
+                INSERT INTO `inbox_message_cache` (`id`, `address`, `addressKey`, `body`, `date`, `type`, `threadId`, `protocolString`, `isRcsChat`, `contactId`, `contactName`, `contactNameLower`)
+                VALUES ('cache_1', '+15551230001', '5551230001', 'Legacy v5 message', 1700000123000, 1, 77, 'SMS', 0, NULL, 'Legacy Contact', 'legacy contact')
+                """.trimIndent()
+            )
+            sqlite.version = 5
+        }
+
+        val upgradedDb = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
+            .addMigrations(*DatabaseMigrations.ALL_MIGRATIONS)
+            .allowMainThreadQueries()
+            .build()
+
+        runBlocking {
+            val dao = upgradedDb.cleanSmsDao()
+            // Verify migrated table works & existing inbox cache row survived
+            assertEquals(0, dao.getAllThreadFolderStates().size)
+            dao.upsertThreadFolderState(
+                com.example.data.local.ThreadFolderStateEntity(
+                    stateKey = "tid:77",
+                    addressKey = "5551230001",
+                    threadId = 77L,
+                    isArchived = true,
+                    isSpam = false,
+                    sourceApp = "PROVIDER_ARCHIVED"
+                )
+            )
+            val saved = dao.getAllThreadFolderStates()
+            assertEquals(1, saved.size)
+            assertTrue(saved.first().isArchived)
+        }
+        upgradedDb.close()
+        context.deleteDatabase(dbName)
+    }
+
+    @Test
+    fun appUpgradeManager_upgradeTo171Pre1_recordsMilestoneAndSchemaV6() {
+        val prefs = context.getSharedPreferences(AppUpgradeManager.PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit()
+            .clear()
+            .putInt("last_migrated_version_code", 10700)
+            .putString("last_migrated_version_name", "1.7.0-pre.1")
+            .commit()
+
+        val manager = AppUpgradeManager(context)
+        val report = manager.ensureStateMigrated(
+            targetVersionCode = 10701,
+            targetVersionName = "1.7.1-pre.1"
+        )
+
+        assertFalse(report.wasMultiVersionJump)
+        assertEquals(6, report.databaseSchemaVersion)
+        assertEquals("1.7.0-pre.1", report.previousVersionName)
+        assertEquals(10700, report.previousVersionCode)
+        assertEquals(
+            listOf("v1.7.1: Cross-app Archived & Spam message folders (Room v6 + Telephony sync) & direct Compact UI toggle"),
+            report.appliedMilestones
+        )
+
+        assertTrue(SemanticVersion.parse("v1.7.1-pre.1")!! > SemanticVersion.parse("v1.7.0-pre.1")!!)
+        assertEquals(10701, SemanticVersion.parse("v1.7.1-pre.1")!!.toVersionCode())
     }
 }

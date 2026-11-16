@@ -278,10 +278,51 @@ object DatabaseMigrations {
         }
     }
 
+    /**
+     * v5 -> v6:
+     * - Adds `thread_folder_states` table for persistent cross-app Archived & Spam categorization.
+     * - Adds `isArchived`, `isSpamMarked`, and `folderSource` columns to `inbox_message_cache`.
+     */
+    val MIGRATION_5_6 = object : Migration(5, 6) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            if (tableExists(db, "inbox_message_cache")) {
+                if (!hasColumn(db, "inbox_message_cache", "isArchived")) {
+                    db.execSQL("ALTER TABLE `inbox_message_cache` ADD COLUMN `isArchived` INTEGER NOT NULL DEFAULT 0")
+                }
+                if (!hasColumn(db, "inbox_message_cache", "isSpamMarked")) {
+                    db.execSQL("ALTER TABLE `inbox_message_cache` ADD COLUMN `isSpamMarked` INTEGER NOT NULL DEFAULT 0")
+                }
+                if (!hasColumn(db, "inbox_message_cache", "folderSource")) {
+                    db.execSQL("ALTER TABLE `inbox_message_cache` ADD COLUMN `folderSource` TEXT NOT NULL DEFAULT ''")
+                }
+            }
+
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `thread_folder_states` (
+                    `stateKey` TEXT NOT NULL,
+                    `addressKey` TEXT NOT NULL,
+                    `threadId` INTEGER NOT NULL DEFAULT 0,
+                    `isArchived` INTEGER NOT NULL DEFAULT 0,
+                    `isSpam` INTEGER NOT NULL DEFAULT 0,
+                    `sourceApp` TEXT NOT NULL DEFAULT 'CLEANSMS_USER',
+                    `updatedAt` INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY(`stateKey`)
+                )
+                """.trimIndent()
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_thread_folder_states_addressKey` ON `thread_folder_states` (`addressKey`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_thread_folder_states_threadId` ON `thread_folder_states` (`threadId`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_thread_folder_states_isArchived` ON `thread_folder_states` (`isArchived`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_thread_folder_states_isSpam` ON `thread_folder_states` (`isSpam`)")
+        }
+    }
+
     val ALL_MIGRATIONS: Array<Migration> = arrayOf(
         MIGRATION_1_2,
         MIGRATION_2_3,
         MIGRATION_3_4,
-        MIGRATION_4_5
+        MIGRATION_4_5,
+        MIGRATION_5_6
     )
 }

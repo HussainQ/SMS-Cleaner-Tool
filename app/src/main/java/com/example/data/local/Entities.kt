@@ -257,7 +257,10 @@ data class InboxMessageCacheEntity(
     val isRcsChat: Boolean = false,
     val contactId: String? = null,
     val contactName: String? = null,
-    val contactNameLower: String = ""
+    val contactNameLower: String = "",
+    val isArchived: Boolean = false,
+    val isSpamMarked: Boolean = false,
+    val folderSource: String = ""
 ) {
     fun toSmsMessageItem(): SmsMessageItem {
         val proto = try {
@@ -276,7 +279,10 @@ data class InboxMessageCacheEntity(
             threadId = threadId,
             isRcsChat = isRcsChat || proto == MessageProtocol.RCS_CHAT,
             contactId = contactId,
-            contactName = contactName
+            contactName = contactName,
+            isArchived = isArchived,
+            isSpamMarked = isSpamMarked,
+            folderSource = folderSource
         )
     }
 
@@ -294,7 +300,10 @@ data class InboxMessageCacheEntity(
                 isRcsChat = item.isRcsChat || item.protocol == MessageProtocol.RCS_CHAT,
                 contactId = item.contactId,
                 contactName = item.contactName,
-                contactNameLower = item.contactName?.trim()?.lowercase().orEmpty()
+                contactNameLower = item.contactName?.trim()?.lowercase().orEmpty(),
+                isArchived = item.isArchived,
+                isSpamMarked = item.isSpamMarked,
+                folderSource = item.folderSource
             )
         }
     }
@@ -362,6 +371,30 @@ data class ContactFilterSelectionEntity(
         }
     }
 }
+
+/**
+ * Persistent cross-app Archived / Spam state for conversations & senders.
+ * Ensures messages archived or marked as spam (in Google Messages, another SMS app,
+ * Android Blocked Numbers, or CleanSMS) stay categorized across rescans and app switches.
+ */
+@Entity(
+    tableName = "thread_folder_states",
+    indices = [
+        Index(value = ["addressKey"]),
+        Index(value = ["threadId"]),
+        Index(value = ["isArchived"]),
+        Index(value = ["isSpam"])
+    ]
+)
+data class ThreadFolderStateEntity(
+    @PrimaryKey val stateKey: String,
+    val addressKey: String,
+    val threadId: Long = 0L,
+    val isArchived: Boolean = false,
+    val isSpam: Boolean = false,
+    val sourceApp: String = "CLEANSMS_USER",
+    val updatedAt: Long = System.currentTimeMillis()
+)
 
 /**
  * Projection row returned by Room SQLite GROUP BY queries for the 'Filter By Contact' UI.

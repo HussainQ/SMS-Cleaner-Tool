@@ -17,6 +17,7 @@ import com.example.data.local.ContactFilterSelectionEntity
 import com.example.data.local.CustomRuleEntity
 import com.example.data.local.DeletedTestSnapshotEntity
 import com.example.data.local.QuarantineEntity
+import com.example.data.local.ThreadFolderStateEntity
 import com.example.model.BackupHistoryRecord
 import com.example.model.CloudBackupPayload
 import com.example.model.ComposeAttachment
@@ -29,6 +30,7 @@ import com.example.model.CustomFilterRule
 import com.example.model.DuplicateKeepStrategy
 import com.example.model.DuplicateThreadCluster
 import com.example.model.LocalOAuthCredential
+import com.example.model.MessageFolderFilter
 import com.example.model.MessageProtocol
 import com.example.model.MessagingHelper
 import com.example.model.MessagingSendProtocol
@@ -145,9 +147,13 @@ data class CleanSmsUiState(
     val upgradeMigrationReport: UpgradeMigrationReport? = null,
     val showUpdatesDialog: Boolean = false,
     val inAppDownloadState: InAppDownloadState = InAppDownloadState(),
-    // Messaging hub (conversation threads, composer, search/protocol filter & compact display setting)
+    // Messaging hub (conversation threads, folders, composer, search/protocol filter & compact display toggle)
     val conversationThreads: List<ConversationThreadSummary> = emptyList(),
     val totalUnreadMessagesCount: Int = 0,
+    val archivedThreadsCount: Int = 0,
+    val spamThreadsCount: Int = 0,
+    val messagesFolderFilter: MessageFolderFilter = MessageFolderFilter.INBOX,
+    val threadFolderStates: Map<String, ThreadFolderStateEntity> = emptyMap(),
     val messagesSearchQuery: String = "",
     val messagesProtocolFilter: MessageProtocol? = null,
     val compactMessagesUi: Boolean = true,
@@ -201,6 +207,7 @@ class CleanSmsViewModel @JvmOverloads constructor(
     private val selectedDeletedTestIdsFlow = MutableStateFlow<Set<String>>(emptySet())
 
     private val scannerSelectionMutex = Mutex()
+    private val folderStateMutex = Mutex()
     private val pendingScannerSelectionWrites = AtomicInteger(0)
 
     private var refreshJob: Job? = null
@@ -208,6 +215,7 @@ class CleanSmsViewModel @JvmOverloads constructor(
     private var updateCheckJob: Job? = null
     private var apkDownloadJob: Job? = null
     private var threadsRecomputeJob: Job? = null
+    private var pendingFolderWriteJob: Job? = null
     private var cachedDeviceContacts: List<ContactInfo> = emptyList()
 
     init {
@@ -476,6 +484,31 @@ class CleanSmsViewModel @JvmOverloads constructor(
                 }
             }
         }
+
+        // Cross-app Archived / Spam folder persistence observer
+        viewModelScope.launch {
+            dao.observeAllThreadFolderStatesFlow().collect { entities ->
+                val stateMap = entities.associateBy { it.stateKey }
+                val currentAll = _uiState.value.allMessages
+                val (updatedRaw, _) = withContext(Dispatchers.Default) {
+                    applyPersistentFolderStates(currentAll, entities)
+                }
+                val flagsChanged = currentAll.isNotEmpty() && updatedRaw != currentAll
+                _uiState.update { state ->
+                    if (flagsChanged) {
+                        state.copy(
+                            threadFolderStates = stateMap,
+                            allMessages = updatedRaw
+                        )
+                    } else {
+                        state.copy(threadFolderStates = stateMap)
+                    }
+                }
+                if (flagsChanged) {
+                    reclassifyCurrentMessagesAsync()
+                }
+            }
+        }
     }
 
     private fun loadInitialData() {
@@ -565,7 +598,20 @@ class CleanSmsViewModel @JvmOverloads constructor(
 
                 // Filter out quarantined messages from raw inbox
                 val quarantinedIds = stateSnapshot.quarantinedMessages.mapTo(HashSet()) { it.id }
-                val activeRaw = if (quarantinedIds.isEmpty()) raw else raw.filterNot { it.id in quarantinedIds }
+                val baseRaw = if (quarantinedIds.isEmpty()) raw else raw.filterNot { it.id in quarantinedIds }
+
+                // Apply persistent Room Archived / Spam states & persist newly observed provider states
+                pendingFolderWriteJob?.join()
+                val (savedFolderStates, activeRaw, newlyDiscoveredStates) = folderStateMutex.withLock {
+                    val saved = dao.getAllThreadFolderStates()
+                    val (updated, newly) = applyPersistentFolderStates(baseRaw, saved)
+                    if (newly.isNotEmpty()) {
+                        dao.upsertThreadFolderStates(newly)
+                    }
+                    Triple(saved, updated, newly)
+                }
+                val mergedFolderStatesMap = (savedFolderStates + newlyDiscoveredStates).associateBy { it.stateKey }
+
                 val mergedContacts = repository.getMergedContactsForMessages(activeRaw, deviceContacts)
 
                 // Sync to Room `inbox_message_cache` so @Query Flow aggregations & joins run asynchronously
@@ -589,12 +635,13 @@ class CleanSmsViewModel @JvmOverloads constructor(
                 )
                 val summary = SmsClassifier.computeSummary(classified)
                 val clusters = SmsClassifier.extractDuplicateThreadClusters(classified)
+                val folderMetrics = computeFolderMetrics(classified)
                 val threads = MessagingHelper.buildConversationThreads(
                     messages = classified,
                     searchQuery = stateSnapshot.messagesSearchQuery,
-                    protocolFilter = stateSnapshot.messagesProtocolFilter
+                    protocolFilter = stateSnapshot.messagesProtocolFilter,
+                    folderFilter = stateSnapshot.messagesFolderFilter
                 )
-                val totalUnread = MessagingHelper.buildConversationThreads(classified, "").sumOf { it.unreadCount }
 
                 RefreshResult(
                     activeRaw = activeRaw,
@@ -603,7 +650,10 @@ class CleanSmsViewModel @JvmOverloads constructor(
                     clusters = clusters,
                     mergedContacts = mergedContacts,
                     threads = threads,
-                    totalUnread = totalUnread
+                    totalUnread = folderMetrics.inboxUnread,
+                    archivedCount = folderMetrics.archivedCount,
+                    spamCount = folderMetrics.spamCount,
+                    folderStates = mergedFolderStatesMap
                 )
             }
 
@@ -616,6 +666,9 @@ class CleanSmsViewModel @JvmOverloads constructor(
                     availableContacts = result.mergedContacts,
                     conversationThreads = result.threads,
                     totalUnreadMessagesCount = result.totalUnread,
+                    archivedThreadsCount = result.archivedCount,
+                    spamThreadsCount = result.spamCount,
+                    threadFolderStates = result.folderStates,
                     isScanning = false
                 )
             }
@@ -645,13 +698,22 @@ class CleanSmsViewModel @JvmOverloads constructor(
                 )
                 val summary = SmsClassifier.computeSummary(classified)
                 val clusters = SmsClassifier.extractDuplicateThreadClusters(classified)
+                val folderMetrics = computeFolderMetrics(classified)
                 val threads = MessagingHelper.buildConversationThreads(
                     messages = classified,
                     searchQuery = snapshot.messagesSearchQuery,
-                    protocolFilter = snapshot.messagesProtocolFilter
+                    protocolFilter = snapshot.messagesProtocolFilter,
+                    folderFilter = snapshot.messagesFolderFilter
                 )
-                val totalUnread = MessagingHelper.buildConversationThreads(classified, "").sumOf { it.unreadCount }
-                QuadResult(classified, summary, clusters, threads, totalUnread)
+                QuadResult(
+                    classified = classified,
+                    summary = summary,
+                    clusters = clusters,
+                    threads = threads,
+                    totalUnread = folderMetrics.inboxUnread,
+                    archivedCount = folderMetrics.archivedCount,
+                    spamCount = folderMetrics.spamCount
+                )
             }
             _uiState.update {
                 it.copy(
@@ -659,7 +721,9 @@ class CleanSmsViewModel @JvmOverloads constructor(
                     summary = result.summary,
                     duplicateThreadClusters = result.clusters,
                     conversationThreads = result.threads,
-                    totalUnreadMessagesCount = result.totalUnread
+                    totalUnreadMessagesCount = result.totalUnread,
+                    archivedThreadsCount = result.archivedCount,
+                    spamThreadsCount = result.spamCount
                 )
             }
         }
@@ -669,23 +733,107 @@ class CleanSmsViewModel @JvmOverloads constructor(
         threadsRecomputeJob?.cancel()
         threadsRecomputeJob = viewModelScope.launch {
             val snapshot = _uiState.value
-            val (threads, totalUnread) = withContext(Dispatchers.Default) {
+            val (threads, metrics) = withContext(Dispatchers.Default) {
                 val basePool = snapshot.classifiedMessages.ifEmpty { snapshot.allMessages }
                 val filtered = MessagingHelper.buildConversationThreads(
                     messages = basePool,
                     searchQuery = snapshot.messagesSearchQuery,
-                    protocolFilter = snapshot.messagesProtocolFilter
+                    protocolFilter = snapshot.messagesProtocolFilter,
+                    folderFilter = snapshot.messagesFolderFilter
                 )
-                val allUnread = MessagingHelper.buildConversationThreads(basePool, "").sumOf { it.unreadCount }
-                filtered to allUnread
+                val folderMetrics = computeFolderMetrics(basePool)
+                filtered to folderMetrics
             }
             _uiState.update {
                 it.copy(
                     conversationThreads = threads,
-                    totalUnreadMessagesCount = totalUnread
+                    totalUnreadMessagesCount = metrics.inboxUnread,
+                    archivedThreadsCount = metrics.archivedCount,
+                    spamThreadsCount = metrics.spamCount
                 )
             }
         }
+    }
+
+    private fun applyPersistentFolderStates(
+        rawMessages: List<SmsMessageItem>,
+        savedStates: List<ThreadFolderStateEntity>
+    ): Pair<List<SmsMessageItem>, List<ThreadFolderStateEntity>> {
+        if (rawMessages.isEmpty()) return rawMessages to emptyList()
+        val byKey = savedStates.associateBy { it.stateKey }
+        val byAddressKey = savedStates.associateBy { it.addressKey }
+        val discovered = LinkedHashMap<String, ThreadFolderStateEntity>()
+
+        val updated = rawMessages.map { msg ->
+            val threadKey = MessagingHelper.threadKeyFor(msg)
+            val addrKey = PhoneNormalizer.primaryKey(msg.address)
+            val saved = byKey[threadKey]
+                ?: byKey["addr:$addrKey"]
+                ?: byAddressKey[addrKey]
+
+            when {
+                saved != null && saved.sourceApp == MessagingHelper.FOLDER_SOURCE_USER_OVERRIDE -> {
+                    msg.copy(
+                        isArchived = saved.isArchived,
+                        isSpamMarked = saved.isSpam,
+                        folderSource = MessagingHelper.FOLDER_SOURCE_USER_OVERRIDE
+                    )
+                }
+                saved != null -> {
+                    val effectiveSpam = saved.isSpam || msg.isSpamMarked
+                    val effectiveArchived = !effectiveSpam && (saved.isArchived || msg.isArchived)
+                    val resolvedSource = msg.folderSource.ifBlank { saved.sourceApp }
+                    if ((msg.isSpamMarked && !saved.isSpam) || (msg.isArchived && !saved.isArchived)) {
+                        discovered[threadKey] = saved.copy(
+                            isArchived = effectiveArchived,
+                            isSpam = effectiveSpam,
+                            sourceApp = resolvedSource,
+                            updatedAt = System.currentTimeMillis()
+                        )
+                    }
+                    msg.copy(
+                        isArchived = effectiveArchived,
+                        isSpamMarked = effectiveSpam,
+                        folderSource = resolvedSource
+                    )
+                }
+                msg.isSpamMarked || msg.isArchived -> {
+                    val src = msg.folderSource.ifBlank {
+                        if (msg.isSpamMarked) MessagingHelper.FOLDER_SOURCE_PROVIDER_SPAM
+                        else MessagingHelper.FOLDER_SOURCE_PROVIDER_ARCHIVED
+                    }
+                    discovered.putIfAbsent(
+                        threadKey,
+                        ThreadFolderStateEntity(
+                            stateKey = threadKey,
+                            addressKey = addrKey,
+                            threadId = msg.threadId,
+                            isArchived = !msg.isSpamMarked && msg.isArchived,
+                            isSpam = msg.isSpamMarked,
+                            sourceApp = src,
+                            updatedAt = System.currentTimeMillis()
+                        )
+                    )
+                    msg.copy(folderSource = src)
+                }
+                else -> msg
+            }
+        }
+        return updated to discovered.values.toList()
+    }
+
+    private fun computeFolderMetrics(pool: List<SmsMessageItem>): FolderMetrics {
+        val allThreads = MessagingHelper.buildConversationThreads(
+            messages = pool,
+            searchQuery = "",
+            protocolFilter = null,
+            folderFilter = null
+        )
+        return FolderMetrics(
+            inboxUnread = allThreads.filter { !it.isArchived && !it.isSpam }.sumOf { it.unreadCount },
+            archivedCount = allThreads.count { it.isArchived && !it.isSpam },
+            spamCount = allThreads.count { it.isSpam }
+        )
     }
 
     // Per-Contact Filter Controls (Room @Query + Coroutine Flow Background Pipeline)
@@ -2016,6 +2164,202 @@ class CleanSmsViewModel @JvmOverloads constructor(
     // Full Messaging App Actions (View, Read, Compose, Send SMS / MMS / RCS)
     // =========================================================================
 
+    fun setMessagesFolderFilter(folder: MessageFolderFilter) {
+        _uiState.update { state ->
+            val pool = state.classifiedMessages.ifEmpty { state.allMessages }
+            val nextThreads = MessagingHelper.buildConversationThreads(
+                messages = pool,
+                searchQuery = state.messagesSearchQuery,
+                protocolFilter = state.messagesProtocolFilter,
+                folderFilter = folder
+            )
+            val metrics = computeFolderMetrics(pool)
+            val keepActive = state.activeConversationKey?.takeIf { key ->
+                nextThreads.any { it.threadKey == key }
+            }
+            state.copy(
+                messagesFolderFilter = folder,
+                conversationThreads = nextThreads,
+                totalUnreadMessagesCount = metrics.inboxUnread,
+                archivedThreadsCount = metrics.archivedCount,
+                spamThreadsCount = metrics.spamCount,
+                activeConversationKey = keepActive
+            )
+        }
+    }
+
+    fun setThreadArchived(thread: ConversationThreadSummary, archived: Boolean) {
+        val targetKey = thread.threadKey
+        val addrKey = PhoneNormalizer.primaryKey(thread.address)
+        val sourceApp = if (archived) {
+            "CLEANSMS_ARCHIVE"
+        } else {
+            MessagingHelper.FOLDER_SOURCE_USER_OVERRIDE
+        }
+        val entity = ThreadFolderStateEntity(
+            stateKey = targetKey,
+            addressKey = addrKey,
+            threadId = thread.threadId,
+            isArchived = archived,
+            isSpam = false,
+            sourceApp = sourceApp,
+            updatedAt = System.currentTimeMillis()
+        )
+
+        fun updateMsg(msg: SmsMessageItem): SmsMessageItem {
+            val sameThread = MessagingHelper.threadKeyFor(msg) == targetKey ||
+                (addrKey.isNotEmpty() && PhoneNormalizer.primaryKey(msg.address) == addrKey)
+            return if (sameThread) {
+                msg.copy(
+                    isArchived = archived,
+                    isSpamMarked = false,
+                    folderSource = sourceApp
+                )
+            } else {
+                msg
+            }
+        }
+
+        val updatedAll = _uiState.value.allMessages.map(::updateMsg)
+        val updatedClassified = _uiState.value.classifiedMessages.map(::updateMsg)
+
+        _uiState.update { state ->
+            val pool = updatedClassified.ifEmpty { updatedAll }
+            val nextThreads = MessagingHelper.buildConversationThreads(
+                messages = pool,
+                searchQuery = state.messagesSearchQuery,
+                protocolFilter = state.messagesProtocolFilter,
+                folderFilter = state.messagesFolderFilter
+            )
+            val metrics = computeFolderMetrics(pool)
+            val keepActive = state.activeConversationKey?.takeIf { key ->
+                nextThreads.any { it.threadKey == key }
+            }
+            val nextStates = state.threadFolderStates + (entity.stateKey to entity)
+            state.copy(
+                allMessages = updatedAll,
+                classifiedMessages = updatedClassified,
+                threadFolderStates = nextStates,
+                conversationThreads = nextThreads,
+                totalUnreadMessagesCount = metrics.inboxUnread,
+                archivedThreadsCount = metrics.archivedCount,
+                spamThreadsCount = metrics.spamCount,
+                activeConversationKey = keepActive,
+                snackbarMessage = if (archived) {
+                    "Archived ${thread.displayName}"
+                } else {
+                    "Unarchived ${thread.displayName} • Moved to Inbox"
+                }
+            )
+        }
+
+        val previousWrite = pendingFolderWriteJob
+        pendingFolderWriteJob = viewModelScope.launch(Dispatchers.IO) {
+            previousWrite?.join()
+            folderStateMutex.withLock {
+                dao.upsertThreadFolderState(entity)
+                val touched = updatedAll.filter {
+                    MessagingHelper.threadKeyFor(it) == targetKey ||
+                        (addrKey.isNotEmpty() && PhoneNormalizer.primaryKey(it.address) == addrKey)
+                }
+                if (touched.isNotEmpty()) {
+                    contactFilterRepository.upsertInboxMessages(touched)
+                }
+                if (!_uiState.value.isDemoMode && thread.threadId > 0L) {
+                    repository.updateTelephonyThreadArchived(thread.threadId, archived)
+                }
+            }
+        }
+    }
+
+    fun setThreadSpam(thread: ConversationThreadSummary, isSpam: Boolean) {
+        val targetKey = thread.threadKey
+        val addrKey = PhoneNormalizer.primaryKey(thread.address)
+        val sourceApp = if (isSpam) {
+            "CLEANSMS_SPAM"
+        } else {
+            MessagingHelper.FOLDER_SOURCE_USER_OVERRIDE
+        }
+        val entity = ThreadFolderStateEntity(
+            stateKey = targetKey,
+            addressKey = addrKey,
+            threadId = thread.threadId,
+            isArchived = false,
+            isSpam = isSpam,
+            sourceApp = sourceApp,
+            updatedAt = System.currentTimeMillis()
+        )
+
+        fun updateMsg(msg: SmsMessageItem): SmsMessageItem {
+            val sameThread = MessagingHelper.threadKeyFor(msg) == targetKey ||
+                (addrKey.isNotEmpty() && PhoneNormalizer.primaryKey(msg.address) == addrKey)
+            return if (sameThread) {
+                val adjustedCategory = when {
+                    isSpam -> SmsCategory.SPAM
+                    msg.category == SmsCategory.SPAM -> SmsCategory.NORMAL
+                    else -> msg.category
+                }
+                msg.copy(
+                    isArchived = false,
+                    isSpamMarked = isSpam,
+                    folderSource = sourceApp,
+                    category = adjustedCategory
+                )
+            } else {
+                msg
+            }
+        }
+
+        val updatedAll = _uiState.value.allMessages.map(::updateMsg)
+        val updatedClassified = _uiState.value.classifiedMessages.map(::updateMsg)
+
+        _uiState.update { state ->
+            val pool = updatedClassified.ifEmpty { updatedAll }
+            val nextThreads = MessagingHelper.buildConversationThreads(
+                messages = pool,
+                searchQuery = state.messagesSearchQuery,
+                protocolFilter = state.messagesProtocolFilter,
+                folderFilter = state.messagesFolderFilter
+            )
+            val metrics = computeFolderMetrics(pool)
+            val keepActive = state.activeConversationKey?.takeIf { key ->
+                nextThreads.any { it.threadKey == key }
+            }
+            val nextStates = state.threadFolderStates + (entity.stateKey to entity)
+            state.copy(
+                allMessages = updatedAll,
+                classifiedMessages = updatedClassified,
+                threadFolderStates = nextStates,
+                conversationThreads = nextThreads,
+                totalUnreadMessagesCount = metrics.inboxUnread,
+                archivedThreadsCount = metrics.archivedCount,
+                spamThreadsCount = metrics.spamCount,
+                activeConversationKey = keepActive,
+                snackbarMessage = if (isSpam) {
+                    "Marked ${thread.displayName} as Spam"
+                } else {
+                    "Marked ${thread.displayName} as Not Spam • Moved to Inbox"
+                }
+            )
+        }
+
+        val previousWrite = pendingFolderWriteJob
+        pendingFolderWriteJob = viewModelScope.launch(Dispatchers.IO) {
+            previousWrite?.join()
+            folderStateMutex.withLock {
+                dao.upsertThreadFolderState(entity)
+                val touched = updatedAll.filter {
+                    MessagingHelper.threadKeyFor(it) == targetKey ||
+                        (addrKey.isNotEmpty() && PhoneNormalizer.primaryKey(it.address) == addrKey)
+                }
+                if (touched.isNotEmpty()) {
+                    contactFilterRepository.upsertInboxMessages(touched)
+                }
+            }
+        }
+        reclassifyCurrentMessagesAsync()
+    }
+
     fun setMessagesSearchQuery(query: String) {
         _uiState.update { it.copy(messagesSearchQuery = query) }
         recomputeConversationThreadsAsync()
@@ -2040,7 +2384,14 @@ class CleanSmsViewModel @JvmOverloads constructor(
     }
 
     fun openConversation(threadKey: String) {
-        val thread = _uiState.value.conversationThreads.firstOrNull { it.threadKey == threadKey }
+        val state = _uiState.value
+        val thread = state.conversationThreads.firstOrNull { it.threadKey == threadKey }
+            ?: MessagingHelper.buildConversationThreads(
+                messages = state.classifiedMessages.ifEmpty { state.allMessages },
+                searchQuery = "",
+                protocolFilter = null,
+                folderFilter = null
+            ).firstOrNull { it.threadKey == threadKey }
         _uiState.update {
             it.copy(
                 activeConversationKey = threadKey,
@@ -2082,15 +2433,19 @@ class CleanSmsViewModel @JvmOverloads constructor(
         }
         _uiState.update { state ->
             val pool = updatedClassified.ifEmpty { updatedAll }
+            val metrics = computeFolderMetrics(pool)
             state.copy(
                 allMessages = updatedAll,
                 classifiedMessages = updatedClassified,
                 conversationThreads = MessagingHelper.buildConversationThreads(
                     messages = pool,
                     searchQuery = state.messagesSearchQuery,
-                    protocolFilter = state.messagesProtocolFilter
+                    protocolFilter = state.messagesProtocolFilter,
+                    folderFilter = state.messagesFolderFilter
                 ),
-                totalUnreadMessagesCount = MessagingHelper.buildConversationThreads(pool, "").sumOf { it.unreadCount }
+                totalUnreadMessagesCount = metrics.inboxUnread,
+                archivedThreadsCount = metrics.archivedCount,
+                spamThreadsCount = metrics.spamCount
             )
         }
         if (!_uiState.value.isDemoMode) {
@@ -2252,11 +2607,13 @@ class CleanSmsViewModel @JvmOverloads constructor(
                 val updatedAll = (listOf(sentItem) + _uiState.value.allMessages)
                     .distinctBy { it.id }
                     .sortedByDescending { it.date }
+                val currentFolder = _uiState.value.messagesFolderFilter
                 val updatedThreads = withContext(Dispatchers.Default) {
                     MessagingHelper.buildConversationThreads(
                         messages = updatedAll,
                         searchQuery = _uiState.value.messagesSearchQuery,
-                        protocolFilter = _uiState.value.messagesProtocolFilter
+                        protocolFilter = _uiState.value.messagesProtocolFilter,
+                        folderFilter = currentFolder
                     )
                 }
                 val newKey = MessagingHelper.threadKeyFor(sentItem)
@@ -2293,7 +2650,8 @@ class CleanSmsViewModel @JvmOverloads constructor(
                                 conversationThreads = MessagingHelper.buildConversationThreads(
                                     messages = deliveredList,
                                     searchQuery = current.messagesSearchQuery,
-                                    protocolFilter = current.messagesProtocolFilter
+                                    protocolFilter = current.messagesProtocolFilter,
+                                    folderFilter = current.messagesFolderFilter
                                 )
                             )
                         }
@@ -2442,6 +2800,10 @@ class CleanSmsViewModel @JvmOverloads constructor(
                     setMessagesProtocolFilter(null)
                     return true
                 }
+                if (state.messagesFolderFilter != MessageFolderFilter.INBOX) {
+                    setMessagesFolderFilter(MessageFolderFilter.INBOX)
+                    return true
+                }
             }
             NavigationTab.PREVIEW -> {
                 if (state.searchQuery.isNotEmpty()) {
@@ -2471,6 +2833,12 @@ class CleanSmsViewModel @JvmOverloads constructor(
         return navigateBackTab()
     }
 
+    private data class FolderMetrics(
+        val inboxUnread: Int,
+        val archivedCount: Int,
+        val spamCount: Int
+    )
+
     private data class RefreshResult(
         val activeRaw: List<SmsMessageItem>,
         val classified: List<SmsMessageItem>,
@@ -2478,7 +2846,10 @@ class CleanSmsViewModel @JvmOverloads constructor(
         val clusters: List<DuplicateThreadCluster>,
         val mergedContacts: List<ContactInfo>,
         val threads: List<ConversationThreadSummary>,
-        val totalUnread: Int
+        val totalUnread: Int,
+        val archivedCount: Int,
+        val spamCount: Int,
+        val folderStates: Map<String, ThreadFolderStateEntity>
     )
 
     private data class QuadResult(
@@ -2486,7 +2857,9 @@ class CleanSmsViewModel @JvmOverloads constructor(
         val summary: ClassificationSummary,
         val clusters: List<DuplicateThreadCluster>,
         val threads: List<ConversationThreadSummary>,
-        val totalUnread: Int
+        val totalUnread: Int,
+        val archivedCount: Int,
+        val spamCount: Int
     )
 
     companion object {

@@ -40,7 +40,10 @@ data class SmsMessageItem(
     val attachmentUri: String? = null,
     val attachmentMimeType: String? = null,
     val attachmentLabel: String? = null,
-    val mmsSubject: String? = null
+    val mmsSubject: String? = null,
+    val isArchived: Boolean = false,
+    val isSpamMarked: Boolean = false,
+    val folderSource: String = ""
 ) {
     val displaySender: String
         get() = if (!contactName.isNullOrBlank() && !contactName.equals(address, ignoreCase = true)) {

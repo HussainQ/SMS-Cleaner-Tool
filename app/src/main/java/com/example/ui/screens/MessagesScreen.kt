@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -33,6 +34,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -41,7 +43,9 @@ import androidx.compose.ui.window.Dialog
 import com.example.model.ComposeAttachment
 import com.example.model.ContactInfo
 import com.example.model.ConversationThreadSummary
+import com.example.model.MessageFolderFilter
 import com.example.model.MessageProtocol
+import com.example.model.MessagingHelper
 import com.example.model.MessagingSendProtocol
 import com.example.model.SmsMessageItem
 import com.example.ui.CleanSmsUiState
@@ -62,12 +66,13 @@ fun MessagesScreen(
     onRequestDefaultSmsRole: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // Handles Back inside Messages tab: Conversation Thread -> Search Query -> Protocol Filter -> Tab/Exit
+    // Handles Back inside Messages tab: Conversation Thread -> Search Query -> Protocol Filter -> Folder -> Tab/Exit
     BackHandler(
         enabled = !uiState.hasOpenOverlay &&
             (uiState.activeConversationKey != null ||
                 uiState.messagesSearchQuery.isNotEmpty() ||
-                uiState.messagesProtocolFilter != null)
+                uiState.messagesProtocolFilter != null ||
+                uiState.messagesFolderFilter != MessageFolderFilter.INBOX)
     ) {
         viewModel.handleBackPress()
     }
@@ -77,6 +82,7 @@ fun MessagesScreen(
     }
     val hasActiveConversation = activeThread != null || !uiState.pendingNewRecipientAddress.isNullOrBlank()
     val compactMode = uiState.compactMessagesUi
+    var actionMenuThread by remember { mutableStateOf<ConversationThreadSummary?>(null) }
 
     BoxWithConstraints(
         modifier = modifier
@@ -91,9 +97,12 @@ fun MessagesScreen(
                     uiState = uiState,
                     compactMode = compactMode,
                     onSearchChange = { viewModel.setMessagesSearchQuery(it) },
+                    onFolderFilterSelect = { viewModel.setMessagesFolderFilter(it) },
                     onProtocolFilterSelect = { viewModel.setMessagesProtocolFilter(it) },
+                    onToggleCompactUi = { viewModel.setCompactMessagesUi(it) },
                     onOpenSettings = { viewModel.openMessagesSettingsDialog() },
                     onThreadClick = { viewModel.openConversation(it.threadKey) },
+                    onOpenThreadActions = { actionMenuThread = it },
                     onNewMessageClick = { viewModel.openNewMessageDialog() },
                     onRequestDefaultSmsRole = onRequestDefaultSmsRole,
                     onRequestSendSmsPermission = onRequestSendSmsPermission,
@@ -144,9 +153,12 @@ fun MessagesScreen(
                     uiState = uiState,
                     compactMode = compactMode,
                     onSearchChange = { viewModel.setMessagesSearchQuery(it) },
+                    onFolderFilterSelect = { viewModel.setMessagesFolderFilter(it) },
                     onProtocolFilterSelect = { viewModel.setMessagesProtocolFilter(it) },
+                    onToggleCompactUi = { viewModel.setCompactMessagesUi(it) },
                     onOpenSettings = { viewModel.openMessagesSettingsDialog() },
                     onThreadClick = { viewModel.openConversation(it.threadKey) },
+                    onOpenThreadActions = { actionMenuThread = it },
                     onNewMessageClick = { viewModel.openNewMessageDialog() },
                     onRequestDefaultSmsRole = onRequestDefaultSmsRole,
                     onRequestSendSmsPermission = onRequestSendSmsPermission,
@@ -181,6 +193,22 @@ fun MessagesScreen(
             onDismiss = { viewModel.dismissMessagesSettingsDialog() }
         )
     }
+
+    val pendingActionThread = actionMenuThread
+    if (pendingActionThread != null) {
+        ConversationActionsDialog(
+            thread = pendingActionThread,
+            onArchiveToggle = {
+                actionMenuThread = null
+                viewModel.setThreadArchived(pendingActionThread, !pendingActionThread.isArchived)
+            },
+            onSpamToggle = {
+                actionMenuThread = null
+                viewModel.setThreadSpam(pendingActionThread, !pendingActionThread.isSpam)
+            },
+            onDismiss = { actionMenuThread = null }
+        )
+    }
 }
 
 @Composable
@@ -188,9 +216,12 @@ private fun ConversationListPane(
     uiState: CleanSmsUiState,
     compactMode: Boolean,
     onSearchChange: (String) -> Unit,
+    onFolderFilterSelect: (MessageFolderFilter) -> Unit,
     onProtocolFilterSelect: (MessageProtocol?) -> Unit,
+    onToggleCompactUi: (Boolean) -> Unit,
     onOpenSettings: () -> Unit,
     onThreadClick: (ConversationThreadSummary) -> Unit,
+    onOpenThreadActions: (ConversationThreadSummary) -> Unit,
     onNewMessageClick: () -> Unit,
     onRequestDefaultSmsRole: () -> Unit,
     onRequestSendSmsPermission: () -> Unit,
@@ -203,6 +234,7 @@ private fun ConversationListPane(
 
     Scaffold(
         modifier = modifier,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         containerColor = MaterialTheme.colorScheme.background,
         floatingActionButton = {
             if (compactMode) {
@@ -234,7 +266,7 @@ private fun ConversationListPane(
         ) {
             Spacer(modifier = Modifier.height(if (compactMode) 4.dp else 8.dp))
 
-            // Top Search Bar paired with Messaging Display Settings button
+            // Top Search Bar paired with direct 1-tap Compact UI Toggle + Display Settings
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -246,7 +278,7 @@ private fun ConversationListPane(
                     placeholder = {
                         Text(
                             text = if (compactMode) {
-                                "Search sender or message..."
+                                "Search sender or text..."
                             } else {
                                 "Search SMS, MMS, RCS by sender or text..."
                             },
@@ -284,6 +316,43 @@ private fun ConversationListPane(
                         .testTag("messages_search_input")
                 )
 
+                // Direct 1-tap Compact UI Toggle synced with Settings
+                Surface(
+                    shape = RoundedCornerShape(if (compactMode) 12.dp else 14.dp),
+                    color = if (compactMode) CyanAccent.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(
+                        width = if (compactMode) 1.3.dp else 1.dp,
+                        color = if (compactMode) CyanAccent else MaterialTheme.colorScheme.outline.copy(alpha = 0.28f)
+                    ),
+                    modifier = Modifier
+                        .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                        .toggleable(
+                            value = compactMode,
+                            role = Role.Switch,
+                            onValueChange = onToggleCompactUi
+                        )
+                        .testTag("messages_compact_toggle_btn")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (compactMode) Icons.Default.Compress else Icons.Default.ViewAgenda,
+                            contentDescription = if (compactMode) "Compact UI On" else "Compact UI Off",
+                            tint = if (compactMode) CyanAccent else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "Compact",
+                            fontSize = 11.sp,
+                            fontWeight = if (compactMode) FontWeight.Bold else FontWeight.Medium,
+                            color = if (compactMode) CyanAccent else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
                 Surface(
                     shape = RoundedCornerShape(if (compactMode) 12.dp else 14.dp),
                     color = MaterialTheme.colorScheme.surface,
@@ -306,7 +375,56 @@ private fun ConversationListPane(
 
             Spacer(modifier = Modifier.height(sectionGap))
 
-            // Protocol filter pills (All / SMS / MMS / RCS) + concise status indicator strip
+            // Cross-App Folder Switcher (Inbox / Archived / Spam)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(if (compactMode) 5.dp else 7.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                FolderFilterChipItem(
+                    label = "Inbox",
+                    icon = Icons.Default.Inbox,
+                    selected = uiState.messagesFolderFilter == MessageFolderFilter.INBOX,
+                    accentColor = CyanAccent,
+                    compactMode = compactMode,
+                    onClick = { onFolderFilterSelect(MessageFolderFilter.INBOX) },
+                    testTag = "messages_folder_inbox"
+                )
+                val archivedLabel = if (uiState.archivedThreadsCount > 0) {
+                    "Archived (${uiState.archivedThreadsCount})"
+                } else {
+                    "Archived"
+                }
+                FolderFilterChipItem(
+                    label = archivedLabel,
+                    icon = Icons.Default.Archive,
+                    selected = uiState.messagesFolderFilter == MessageFolderFilter.ARCHIVED,
+                    accentColor = TealAccent,
+                    compactMode = compactMode,
+                    onClick = { onFolderFilterSelect(MessageFolderFilter.ARCHIVED) },
+                    testTag = "messages_folder_archived"
+                )
+                val spamLabel = if (uiState.spamThreadsCount > 0) {
+                    "Spam (${uiState.spamThreadsCount})"
+                } else {
+                    "Spam"
+                }
+                FolderFilterChipItem(
+                    label = spamLabel,
+                    icon = Icons.Default.Report,
+                    selected = uiState.messagesFolderFilter == MessageFolderFilter.SPAM,
+                    accentColor = Color(0xFFFF6B6B),
+                    compactMode = compactMode,
+                    onClick = { onFolderFilterSelect(MessageFolderFilter.SPAM) },
+                    testTag = "messages_folder_spam"
+                )
+            }
+
+            Spacer(modifier = Modifier.height(sectionGap))
+
+            // Protocol filter pills (All / SMS / MMS / RCS)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -362,17 +480,20 @@ private fun ConversationListPane(
 
             Spacer(modifier = Modifier.height(sectionGap))
 
-            MessagingStatusStrip(
-                isDemoMode = uiState.isDemoMode,
-                isDefaultSmsApp = uiState.isDefaultSmsApp,
-                hasSendSmsPermission = uiState.hasSendSmsPermission,
-                unreadCount = uiState.totalUnreadMessagesCount,
-                compactMode = compactMode,
-                onRequestDefaultSmsRole = onRequestDefaultSmsRole,
-                onRequestSendSmsPermission = onRequestSendSmsPermission
-            )
+            val pinStatusAtTop = !compactMode || (!uiState.isDemoMode && !uiState.hasSendSmsPermission)
+            if (pinStatusAtTop) {
+                MessagingStatusStrip(
+                    isDemoMode = uiState.isDemoMode,
+                    isDefaultSmsApp = uiState.isDefaultSmsApp,
+                    hasSendSmsPermission = uiState.hasSendSmsPermission,
+                    unreadCount = uiState.totalUnreadMessagesCount,
+                    compactMode = compactMode,
+                    onRequestDefaultSmsRole = onRequestDefaultSmsRole,
+                    onRequestSendSmsPermission = onRequestSendSmsPermission
+                )
 
-            Spacer(modifier = Modifier.height(sectionGap))
+                Spacer(modifier = Modifier.height(sectionGap))
+            }
 
             if (uiState.conversationThreads.isEmpty()) {
                 Box(
@@ -386,7 +507,11 @@ private fun ConversationListPane(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Forum,
+                            imageVector = when (uiState.messagesFolderFilter) {
+                                MessageFolderFilter.ARCHIVED -> Icons.Default.Archive
+                                MessageFolderFilter.SPAM -> Icons.Default.VerifiedUser
+                                MessageFolderFilter.INBOX -> Icons.Default.Forum
+                            },
                             contentDescription = "No messages",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(44.dp)
@@ -397,7 +522,11 @@ private fun ConversationListPane(
                             uiState.messagesSearchQuery.isNotBlank() ->
                                 "No conversations matching \"${uiState.messagesSearchQuery}\""
                             uiState.messagesProtocolFilter != null ->
-                                "No ${uiState.messagesProtocolFilter.displayName} conversations found"
+                                "No ${uiState.messagesProtocolFilter.displayName} conversations in ${uiState.messagesFolderFilter.label}"
+                            uiState.messagesFolderFilter == MessageFolderFilter.ARCHIVED ->
+                                "No archived conversations"
+                            uiState.messagesFolderFilter == MessageFolderFilter.SPAM ->
+                                "No spam or blocked conversations"
                             else -> "No conversations yet"
                         }
                         Text(
@@ -414,6 +543,13 @@ private fun ConversationListPane(
                                 modifier = Modifier.testTag("messages_clear_filters_btn")
                             ) {
                                 Text("Clear Filters")
+                            }
+                        } else if (uiState.messagesFolderFilter != MessageFolderFilter.INBOX) {
+                            OutlinedButton(
+                                onClick = { onFolderFilterSelect(MessageFolderFilter.INBOX) },
+                                modifier = Modifier.testTag("messages_back_to_inbox_btn")
+                            ) {
+                                Text("Back to Inbox")
                             }
                         } else {
                             Button(
@@ -442,11 +578,72 @@ private fun ConversationListPane(
                             thread = thread,
                             isSelected = isSelected,
                             compactMode = compactMode,
-                            onClick = { onThreadClick(thread) }
+                            onClick = { onThreadClick(thread) },
+                            onOpenActions = { onOpenThreadActions(thread) }
                         )
+                    }
+                    if (!pinStatusAtTop) {
+                        item(key = "messaging_status_footer") {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            MessagingStatusStrip(
+                                isDemoMode = uiState.isDemoMode,
+                                isDefaultSmsApp = uiState.isDefaultSmsApp,
+                                hasSendSmsPermission = uiState.hasSendSmsPermission,
+                                unreadCount = uiState.totalUnreadMessagesCount,
+                                compactMode = compactMode,
+                                onRequestDefaultSmsRole = onRequestDefaultSmsRole,
+                                onRequestSendSmsPermission = onRequestSendSmsPermission
+                            )
+                        }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun FolderFilterChipItem(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    selected: Boolean,
+    accentColor: Color,
+    compactMode: Boolean,
+    onClick: () -> Unit,
+    testTag: String
+) {
+    Surface(
+        shape = RoundedCornerShape(if (compactMode) 10.dp else 12.dp),
+        color = if (selected) accentColor.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surface,
+        border = BorderStroke(
+            width = if (selected) 1.3.dp else 1.dp,
+            color = if (selected) accentColor else MaterialTheme.colorScheme.outline.copy(alpha = 0.26f)
+        ),
+        modifier = Modifier
+            .defaultMinSize(minHeight = if (compactMode) 36.dp else 40.dp)
+            .clickable(onClick = onClick)
+            .testTag(testTag)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            modifier = Modifier.padding(
+                horizontal = if (compactMode) 10.dp else 12.dp,
+                vertical = if (compactMode) 6.dp else 7.dp
+            )
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = if (selected) accentColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(if (compactMode) 14.dp else 16.dp)
+            )
+            Text(
+                text = label,
+                fontSize = if (compactMode) 11.sp else 12.sp,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                color = if (selected) accentColor else MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
@@ -585,7 +782,8 @@ private fun ConversationThreadRow(
     thread: ConversationThreadSummary,
     isSelected: Boolean,
     compactMode: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onOpenActions: () -> Unit
 ) {
     val protocolColor = Color(thread.protocol.badgeColorHex)
     val isUnread = thread.unreadCount > 0
@@ -608,11 +806,13 @@ private fun ConversationThreadRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(
-                    horizontal = if (compactMode) 10.dp else 12.dp,
-                    vertical = if (compactMode) 7.dp else 12.dp
+                    start = if (compactMode) 10.dp else 12.dp,
+                    end = 4.dp,
+                    top = if (compactMode) 7.dp else 12.dp,
+                    bottom = if (compactMode) 7.dp else 12.dp
                 ),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(if (compactMode) 9.dp else 12.dp)
+            horizontalArrangement = Arrangement.spacedBy(if (compactMode) 8.dp else 10.dp)
         ) {
             // Avatar with initials
             Surface(
@@ -699,7 +899,29 @@ private fun ConversationThreadRow(
                         fontSize = if (compactMode) 10.sp else 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    if (thread.hasCleanableClutter) {
+                    if (thread.isSpam || thread.isArchived) {
+                        val badgeColor = if (thread.isSpam) Color(0xFFFF6B6B) else TealAccent
+                        val badgeLabel = when {
+                            thread.folderSource == MessagingHelper.FOLDER_SOURCE_BLOCKED_NUMBER -> "Blocked"
+                            thread.folderSource == MessagingHelper.FOLDER_SOURCE_PROVIDER_SPAM -> "Provider Spam"
+                            thread.folderSource == MessagingHelper.FOLDER_SOURCE_PROVIDER_ARCHIVED -> "Synced Archive"
+                            thread.folderSource == MessagingHelper.FOLDER_SOURCE_SMART_SPAM -> "Smart Spam"
+                            thread.isSpam -> "Spam"
+                            else -> "Archived"
+                        }
+                        Surface(
+                            color = badgeColor.copy(alpha = 0.16f),
+                            shape = RoundedCornerShape(if (compactMode) 5.dp else 6.dp)
+                        ) {
+                            Text(
+                                text = badgeLabel,
+                                color = badgeColor,
+                                fontSize = if (compactMode) 9.sp else 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                            )
+                        }
+                    } else if (thread.hasCleanableClutter) {
                         Surface(
                             color = Color(0xFFFFB300).copy(alpha = 0.16f),
                             shape = RoundedCornerShape(if (compactMode) 5.dp else 6.dp)
@@ -726,6 +948,109 @@ private fun ConversationThreadRow(
                         text = thread.unreadCount.toString(),
                         fontWeight = FontWeight.Bold
                     )
+                }
+            }
+
+            IconButton(
+                onClick = onOpenActions,
+                modifier = Modifier
+                    .size(48.dp)
+                    .testTag("conversation_menu_${thread.threadKey}")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.MoreVert,
+                    contentDescription = "Conversation actions",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConversationActionsDialog(
+    thread: ConversationThreadSummary,
+    onArchiveToggle: () -> Unit,
+    onSpamToggle: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(18.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("conversation_actions_dialog")
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = thread.displayName,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "${thread.protocol.displayName} • ${thread.messageCount} message${if (thread.messageCount == 1) "" else "s"}",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedButton(
+                    onClick = onArchiveToggle,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .defaultMinSize(minHeight = 48.dp)
+                        .testTag(
+                            if (thread.isArchived) {
+                                "action_unarchive_${thread.threadKey}"
+                            } else {
+                                "action_archive_${thread.threadKey}"
+                            }
+                        )
+                ) {
+                    Icon(
+                        imageVector = if (thread.isArchived) Icons.Default.Unarchive else Icons.Default.Archive,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(if (thread.isArchived) "Unarchive" else "Archive")
+                }
+                OutlinedButton(
+                    onClick = onSpamToggle,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .defaultMinSize(minHeight = 48.dp)
+                        .testTag(
+                            if (thread.isSpam) {
+                                "action_not_spam_${thread.threadKey}"
+                            } else {
+                                "action_mark_spam_${thread.threadKey}"
+                            }
+                        )
+                ) {
+                    Icon(
+                        imageVector = if (thread.isSpam) Icons.Default.VerifiedUser else Icons.Default.Report,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(if (thread.isSpam) "Not Spam (Move to Inbox)" else "Mark as Spam")
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("Close")
+                    }
                 }
             }
         }
@@ -776,7 +1101,7 @@ private fun ConversationDetailPane(
                         vertical = if (compactMode) 4.dp else 8.dp
                     ),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 IconButton(
                     onClick = onBack,
@@ -820,8 +1145,35 @@ private fun ConversationDetailPane(
                         color = protoColor,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                     )
+                }
+
+                if (thread != null) {
+                    IconButton(
+                        onClick = { viewModel.setThreadArchived(thread, !thread.isArchived) },
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("conversation_archive_button")
+                    ) {
+                        Icon(
+                            imageVector = if (thread.isArchived) Icons.Default.Unarchive else Icons.Default.Archive,
+                            contentDescription = if (thread.isArchived) "Unarchive conversation" else "Archive conversation",
+                            tint = if (thread.isArchived) TealAccent else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    IconButton(
+                        onClick = { viewModel.setThreadSpam(thread, !thread.isSpam) },
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("conversation_spam_button")
+                    ) {
+                        Icon(
+                            imageVector = if (thread.isSpam) Icons.Default.VerifiedUser else Icons.Default.Report,
+                            contentDescription = if (thread.isSpam) "Mark as not spam" else "Mark conversation as spam",
+                            tint = if (thread.isSpam) Color(0xFFFF6B6B) else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
         }

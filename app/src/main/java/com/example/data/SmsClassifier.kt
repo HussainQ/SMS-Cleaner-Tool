@@ -5,6 +5,7 @@ import com.example.model.CustomFilterRule
 import com.example.model.DuplicateKeepStrategy
 import com.example.model.DuplicateThreadCluster
 import com.example.model.MessageProtocol
+import com.example.model.MessagingHelper
 import com.example.model.PhoneNormalizer
 import com.example.model.RcsDeliveryStatus
 import com.example.model.SmsCategory
@@ -283,13 +284,19 @@ object SmsClassifier {
                         matchesCompiledRule(msg, bodyLower, compiled, now)
                     }
 
+                    val isExplicitNotSpamOverride = msg.folderSource == MessagingHelper.FOLDER_SOURCE_USER_OVERRIDE && !msg.isSpamMarked
                     if (matchedRule != null) {
                         category = SmsCategory.CUSTOM_RULE
                         matchedRuleName = matchedRule.rule.name
                         matchReason = "Matched custom rule: '${matchedRule.rule.name}'"
-                    } else if (filterSpam && isSpamMessageLower(bodyLower)) {
+                    } else if (filterSpam && (msg.isSpamMarked || (!isExplicitNotSpamOverride && isSpamMessageLower(bodyLower)))) {
                         category = SmsCategory.SPAM
-                        matchReason = "Spam / Phishing: Contains urgent threat or suspicious link"
+                        matchReason = if (msg.isSpamMarked) {
+                            val src = msg.folderSource.takeIf { it.isNotBlank() } ?: "Cross-App Spam"
+                            "Marked as Spam ($src)"
+                        } else {
+                            "Spam / Phishing: Contains urgent threat or suspicious link"
+                        }
                     } else if (filterOtps && isOtpMessageLower(msg.body, bodyLower)) {
                         val code = extractOtpCode(msg.body)
                         otpCode = code
