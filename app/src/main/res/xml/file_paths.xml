@@ -6,4 +6,7 @@
     <files-path
         name="apk_updates_files"
         path="updates/" />
+    <cache-path
+        name="mms_outbox"
+        path="mms_outbox/" />
 </paths>

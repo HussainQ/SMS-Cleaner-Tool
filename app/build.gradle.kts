@@ -17,8 +17,8 @@ android {
     applicationId = "com.aistudio.cleansms.jrvxpq"
     minSdk = 24
     targetSdk = 36
-    versionCode = 10602
-    versionName = "1.6.2-pre.1"
+    versionCode = 10700
+    versionName = "1.7.0-pre.1"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

@@ -2,13 +2,16 @@ package com.example
 
 import android.app.Application
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -24,13 +27,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.model.ComposeAttachment
+import com.example.model.MessagingHelper
 import com.example.model.PhoneNormalizer
-import com.example.model.SmsCategory
 import com.example.telephony.TelephonyManagerHelper
 import com.example.ui.CleanSmsUiState
 import com.example.ui.CleanSmsViewModel
@@ -43,6 +48,7 @@ import com.example.ui.components.RestoreCloudDialog
 import com.example.update.InAppApkInstaller
 import com.example.update.InAppUpdateInstallPhase
 import com.example.update.UpdateCheckStatus
+import com.example.ui.screens.MessagesScreen
 import com.example.ui.screens.PreviewCleanScreen
 import com.example.ui.screens.RulesAndCloudScreen
 import com.example.ui.screens.ScannerScreen
@@ -54,6 +60,7 @@ import com.example.ui.theme.TealAccent
 import java.io.File
 
 enum class NavigationTab(val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
+    MESSAGES("Messages", Icons.Default.Forum),
     SCANNER("Scanner", Icons.Default.Dashboard),
     PREVIEW("Review", Icons.Default.CleaningServices),
     VAULT("Vault", Icons.Default.Restore),
@@ -65,15 +72,36 @@ const val PERMISSION_WRITE_SMS = "android.permission.WRITE_SMS"
 class MainActivity : ComponentActivity() {
 
     private var windowFocusSyncTrigger by mutableIntStateOf(0)
+    private var pendingSendIntentPayload by mutableStateOf<Pair<String, String?>?>(null)
+    private var sendIntentSequence by mutableIntStateOf(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        captureIncomingSendIntent(intent)
 
         setContent {
             CleanSMSTheme {
-                CleanSmsApp(windowFocusSyncTrigger = windowFocusSyncTrigger)
+                CleanSmsApp(
+                    windowFocusSyncTrigger = windowFocusSyncTrigger,
+                    externalSendIntent = pendingSendIntentPayload,
+                    externalSendIntentSequence = sendIntentSequence
+                )
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        captureIncomingSendIntent(intent)
+    }
+
+    private fun captureIncomingSendIntent(intent: Intent?) {
+        val parsed = MessagingHelper.parseSendIntent(intent)
+        if (parsed != null) {
+            pendingSendIntentPayload = parsed
+            sendIntentSequence++
         }
     }
 
@@ -89,6 +117,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun CleanSmsApp(
     windowFocusSyncTrigger: Int = 0,
+    externalSendIntent: Pair<String, String?>? = null,
+    externalSendIntentSequence: Int = 0,
     viewModel: CleanSmsViewModel = viewModel(
         factory = CleanSmsViewModel.Factory(
             LocalContext.current.applicationContext as Application
@@ -101,15 +131,24 @@ fun CleanSmsApp(
 
     val currentTab = uiState.currentTab
 
-    // Base Navigation Tab BackHandler (pops visited tabs in reverse click order down to Scanner root)
+    // Base Navigation Tab BackHandler (pops visited tabs in reverse click order down to Messages root)
     BackHandler(
         enabled = !uiState.hasOpenOverlay &&
-            (uiState.tabBackStack.size > 1 || currentTab != NavigationTab.SCANNER)
+            (uiState.tabBackStack.size > 1 || currentTab != NavigationTab.MESSAGES)
     ) {
         viewModel.navigateBackTab()
     }
 
-    // Check initial permissions (SMS + Contacts) and re-check on lifecycle resume
+    LaunchedEffect(externalSendIntentSequence) {
+        if (externalSendIntentSequence > 0 && externalSendIntent != null) {
+            viewModel.handleExternalSendIntent(
+                recipient = externalSendIntent.first,
+                body = externalSendIntent.second
+            )
+        }
+    }
+
+    // Check initial permissions (SMS read/write/send + Contacts) and re-check on lifecycle resume
     val checkPermissions = remember(context) {
         {
             val readGranted = ContextCompat.checkSelfPermission(
@@ -120,11 +159,19 @@ fun CleanSmsApp(
                 context,
                 PERMISSION_WRITE_SMS
             ) == PackageManager.PERMISSION_GRANTED
+            val sendGranted = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.SEND_SMS
+            ) == PackageManager.PERMISSION_GRANTED
             val contactsGranted = ContextCompat.checkSelfPermission(
                 context,
                 Manifest.permission.READ_CONTACTS
             ) == PackageManager.PERMISSION_GRANTED
-            viewModel.setSmsPermissions(readGranted = readGranted, writeGranted = writeGranted)
+            viewModel.setSmsPermissions(
+                readGranted = readGranted,
+                writeGranted = writeGranted,
+                sendGranted = sendGranted
+            )
             viewModel.setContactsPermission(contactsGranted)
             viewModel.checkTelephonyState()
         }
@@ -153,19 +200,24 @@ fun CleanSmsApp(
         }
     }
 
-    // Permission launcher specifically requesting READ_SMS and WRITE_SMS
+    // Permission launcher requesting READ_SMS, WRITE_SMS, and SEND_SMS
     val smsPermissionsLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { permissionsMap ->
         val readGranted = permissionsMap[Manifest.permission.READ_SMS] == true
         val writeGranted = permissionsMap[PERMISSION_WRITE_SMS] == true
+        val sendGranted = permissionsMap[Manifest.permission.SEND_SMS] == true
         val bothGranted = readGranted && writeGranted
         val activity = context as? androidx.activity.ComponentActivity
 
-        viewModel.setSmsPermissions(readGranted = readGranted, writeGranted = writeGranted)
+        viewModel.setSmsPermissions(
+            readGranted = readGranted,
+            writeGranted = writeGranted,
+            sendGranted = sendGranted
+        )
 
         if (bothGranted) {
-            viewModel.showSnackbar("READ_SMS & WRITE_SMS permissions granted. Device inbox active.")
+            viewModel.showSnackbar("SMS permissions granted. Device messaging & inbox active.")
         } else if (activity != null) {
             val shouldShowRead = androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.READ_SMS)
             val shouldShowWrite = androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(activity, PERMISSION_WRITE_SMS)
@@ -174,6 +226,63 @@ fun CleanSmsApp(
             } else {
                 viewModel.openPermissionRationaleDialog()
             }
+        }
+    }
+
+    val sendSmsPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        val currentState = viewModel.uiState.value
+        viewModel.setSmsPermissions(
+            readGranted = currentState.hasReadSmsPermission,
+            writeGranted = currentState.hasWriteSmsPermission,
+            sendGranted = granted
+        )
+        if (granted) {
+            viewModel.showSnackbar("SEND_SMS permission granted. Ready to send messages.")
+        } else {
+            viewModel.showSnackbar("SEND_SMS permission denied. Carrier messaging unavailable.")
+        }
+    }
+
+    // Zero-permission Photo Picker for MMS media attachments (Play Policy compliant)
+    val mediaPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            val mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
+            var displayName = "attachment.jpg"
+            var sizeBytes = 0L
+            runCatching {
+                context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        val sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE)
+                        if (nameIdx >= 0) {
+                            displayName = cursor.getString(nameIdx) ?: displayName
+                        }
+                        if (sizeIdx >= 0) {
+                            sizeBytes = cursor.getLong(sizeIdx)
+                        }
+                    }
+                }
+            }
+            viewModel.setComposerAttachment(
+                ComposeAttachment(
+                    uriString = uri.toString(),
+                    mimeType = mimeType,
+                    displayName = displayName,
+                    sizeBytes = sizeBytes
+                )
+            )
+        }
+    }
+
+    val pickMediaAction: () -> Unit = remember(mediaPickerLauncher) {
+        {
+            mediaPickerLauncher.launch(
+                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+            )
         }
     }
 
@@ -189,17 +298,34 @@ fun CleanSmsApp(
         }
     }
 
+    val requestSendSmsPermissionAction: () -> Unit = remember(sendSmsPermissionLauncher, context, viewModel) {
+        {
+            val granted = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.SEND_SMS
+            ) == PackageManager.PERMISSION_GRANTED
+            if (granted) {
+                val cur = viewModel.uiState.value
+                viewModel.setSmsPermissions(cur.hasReadSmsPermission, cur.hasWriteSmsPermission, true)
+            } else {
+                sendSmsPermissionLauncher.launch(Manifest.permission.SEND_SMS)
+            }
+        }
+    }
+
     val requestSmsPermissionsAction: () -> Unit = remember(smsPermissionsLauncher) {
         {
             val readGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
             val writeGranted = ContextCompat.checkSelfPermission(context, PERMISSION_WRITE_SMS) == PackageManager.PERMISSION_GRANTED
-            if (readGranted && writeGranted) {
-                viewModel.setSmsPermissions(readGranted = true, writeGranted = true)
+            val sendGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED
+            if (readGranted && writeGranted && sendGranted) {
+                viewModel.setSmsPermissions(readGranted = true, writeGranted = true, sendGranted = true)
             } else {
                 smsPermissionsLauncher.launch(
                     arrayOf(
                         Manifest.permission.READ_SMS,
-                        PERMISSION_WRITE_SMS
+                        PERMISSION_WRITE_SMS,
+                        Manifest.permission.SEND_SMS
                     )
                 )
             }
@@ -339,6 +465,7 @@ fun CleanSmsApp(
     }
 
     // Badge counts (single-pass summary)
+    val unreadMessagesCount = uiState.totalUnreadMessagesCount
     val cleanableCount = uiState.summary.allCleanableCount
     val quarantinedCount = uiState.quarantinedMessages.size
 
@@ -375,6 +502,7 @@ fun CleanSmsApp(
                     NavigationTab.entries.forEach { tab ->
                         val isSelected = currentTab == tab
                         val badgeCount = when (tab) {
+                            NavigationTab.MESSAGES -> unreadMessagesCount
                             NavigationTab.PREVIEW -> cleanableCount
                             NavigationTab.VAULT -> quarantinedCount
                             else -> 0
@@ -399,7 +527,7 @@ fun CleanSmsApp(
                                     Icon(tab.icon, contentDescription = tab.title)
                                 }
                             },
-                            label = { Text(tab.title, fontSize = 11.sp) },
+                            label = { Text(tab.title, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                             modifier = Modifier.testTag("nav_rail_${tab.name.lowercase()}")
                         )
                     }
@@ -498,9 +626,11 @@ fun CleanSmsApp(
                             uiState = uiState,
                             viewModel = viewModel,
                             onRequestSmsPermission = requestSmsPermissionsAction,
+                            onRequestSendSmsPermission = requestSendSmsPermissionAction,
                             onRequestContactsPermission = requestContactsPermissionAction,
                             onRequestDefaultSmsRole = requestDefaultSmsRoleAction,
                             onHandBackDefaultSmsRole = handBackDefaultSmsRoleAction,
+                            onPickMedia = pickMediaAction,
                             onNavigateToPreview = { viewModel.navigateToTab(NavigationTab.PREVIEW) }
                         )
                     }
@@ -610,6 +740,7 @@ fun CleanSmsApp(
                         NavigationTab.entries.forEach { tab ->
                             val isSelected = currentTab == tab
                             val badgeCount = when (tab) {
+                                NavigationTab.MESSAGES -> unreadMessagesCount
                                 NavigationTab.PREVIEW -> cleanableCount
                                 NavigationTab.VAULT -> quarantinedCount
                                 else -> 0
@@ -634,7 +765,15 @@ fun CleanSmsApp(
                                         Icon(tab.icon, contentDescription = tab.title)
                                     }
                                 },
-                                label = { Text(tab.title, fontSize = 12.sp) },
+                                label = {
+                                    Text(
+                                        text = tab.title,
+                                        fontSize = 10.sp,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                },
                                 modifier = Modifier.testTag("nav_tab_${tab.name.lowercase()}")
                             )
                         }
@@ -651,9 +790,11 @@ fun CleanSmsApp(
                         uiState = uiState,
                         viewModel = viewModel,
                         onRequestSmsPermission = requestSmsPermissionsAction,
+                        onRequestSendSmsPermission = requestSendSmsPermissionAction,
                         onRequestContactsPermission = requestContactsPermissionAction,
                         onRequestDefaultSmsRole = requestDefaultSmsRoleAction,
                         onHandBackDefaultSmsRole = handBackDefaultSmsRoleAction,
+                        onPickMedia = pickMediaAction,
                         onNavigateToPreview = { viewModel.navigateToTab(NavigationTab.PREVIEW) }
                     )
                 }
@@ -798,12 +939,24 @@ private fun AppScreenContent(
     uiState: CleanSmsUiState,
     viewModel: CleanSmsViewModel,
     onRequestSmsPermission: () -> Unit,
+    onRequestSendSmsPermission: () -> Unit,
     onRequestContactsPermission: () -> Unit,
     onRequestDefaultSmsRole: () -> Unit,
     onHandBackDefaultSmsRole: () -> Unit,
+    onPickMedia: () -> Unit,
     onNavigateToPreview: () -> Unit
 ) {
     when (currentTab) {
+        NavigationTab.MESSAGES -> {
+            MessagesScreen(
+                uiState = uiState,
+                viewModel = viewModel,
+                onPickMedia = onPickMedia,
+                onRequestSendSmsPermission = onRequestSendSmsPermission,
+                onRequestDefaultSmsRole = onRequestDefaultSmsRole
+            )
+        }
+
         NavigationTab.SCANNER -> {
             ScannerScreen(
                 uiState = uiState,

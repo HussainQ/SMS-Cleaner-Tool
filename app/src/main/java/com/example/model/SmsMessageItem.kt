@@ -35,7 +35,12 @@ data class SmsMessageItem(
     val matchedRuleName: String? = null,
     val isSelected: Boolean = true,
     val isQuarantined: Boolean = false,
-    val deletedAt: Long? = null
+    val deletedAt: Long? = null,
+    val isRead: Boolean = true,
+    val attachmentUri: String? = null,
+    val attachmentMimeType: String? = null,
+    val attachmentLabel: String? = null,
+    val mmsSubject: String? = null
 ) {
     val displaySender: String
         get() = if (!contactName.isNullOrBlank() && !contactName.equals(address, ignoreCase = true)) {

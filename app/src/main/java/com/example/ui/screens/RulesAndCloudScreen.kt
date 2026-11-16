@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.text.style.TextOverflow
 import com.example.model.BackupHistoryRecord
 import com.example.model.CustomFilterRule
@@ -442,8 +443,8 @@ private fun CloudBackupPane(
     modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        modifier = modifier.verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         // Pane Header
         Column {
@@ -714,22 +715,53 @@ private fun CloudBackupPane(
             shape = RoundedCornerShape(14.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Auto-backup before clean", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                    Text("Creates snapshot prior to permanent removals", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Compact Messages UI", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                        Text(
+                            text = if (uiState.compactMessagesUi) {
+                                "Compact density (more threads & slimmer bubbles)"
+                            } else {
+                                "Comfortable density (larger avatars & 2-line previews)"
+                            },
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = uiState.compactMessagesUi,
+                        onCheckedChange = { viewModel.setCompactMessagesUi(it) },
+                        modifier = Modifier.testTag("settings_compact_messages_switch")
+                    )
                 }
-                Switch(
-                    checked = uiState.autoBackupBeforeClean,
-                    onCheckedChange = { viewModel.toggleAutoBackup(it) },
-                    modifier = Modifier.testTag("auto_backup_switch")
-                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.16f))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Auto-backup before clean", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                        Text("Creates snapshot prior to permanent removals", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(
+                        checked = uiState.autoBackupBeforeClean,
+                        onCheckedChange = { viewModel.toggleAutoBackup(it) },
+                        modifier = Modifier.testTag("auto_backup_switch")
+                    )
+                }
             }
         }
 
@@ -840,11 +872,11 @@ private fun CloudBackupPane(
                 )
             }
         } else {
-            LazyColumn(
-                modifier = Modifier.weight(1f),
+            Column(
+                modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(uiState.backupHistory, key = { it.id }) { record ->
+                uiState.backupHistory.forEach { record ->
                     val dateFormatted = remember(record.backupTimestamp) {
                         DateFormatterUtil.formatBackupDate(record.backupTimestamp)
                     }

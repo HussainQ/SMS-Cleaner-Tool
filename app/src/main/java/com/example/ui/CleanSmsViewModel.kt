@@ -19,19 +19,25 @@ import com.example.data.local.DeletedTestSnapshotEntity
 import com.example.data.local.QuarantineEntity
 import com.example.model.BackupHistoryRecord
 import com.example.model.CloudBackupPayload
+import com.example.model.ComposeAttachment
 import com.example.model.ContactFilterMode
 import com.example.model.ContactInfo
 import com.example.model.ContactThreadEntry
 import com.example.model.ContactThreadFilterScope
+import com.example.model.ConversationThreadSummary
 import com.example.model.CustomFilterRule
 import com.example.model.DuplicateKeepStrategy
 import com.example.model.DuplicateThreadCluster
 import com.example.model.LocalOAuthCredential
 import com.example.model.MessageProtocol
+import com.example.model.MessagingHelper
+import com.example.model.MessagingSendProtocol
 import com.example.model.OAuthServiceDefinition
 import com.example.model.PhoneNormalizer
+import com.example.model.RcsDeliveryStatus
 import com.example.model.SmsCategory
 import com.example.model.SmsMessageItem
+import com.example.telephony.IncomingTelephonyNotifier
 import com.example.telephony.TelephonyManagerHelper
 import com.example.update.AppUpgradeManager
 import com.example.update.GitHubUpdateRepository
@@ -59,6 +65,7 @@ data class CleanSmsUiState(
     val isDemoMode: Boolean = true,
     val hasReadSmsPermission: Boolean = false,
     val hasWriteSmsPermission: Boolean = false,
+    val hasSendSmsPermission: Boolean = false,
     val hasSmsPermission: Boolean = false,
     val hasContactsPermission: Boolean = false,
     val isDefaultSmsApp: Boolean = false,
@@ -138,14 +145,32 @@ data class CleanSmsUiState(
     val upgradeMigrationReport: UpgradeMigrationReport? = null,
     val showUpdatesDialog: Boolean = false,
     val inAppDownloadState: InAppDownloadState = InAppDownloadState(),
-    // Hierarchical back-navigation state (top-level tab order of clicks + in-screen sub-tabs)
-    val currentTab: NavigationTab = NavigationTab.SCANNER,
-    val tabBackStack: List<NavigationTab> = listOf(NavigationTab.SCANNER),
+    // Messaging hub (conversation threads, composer, search/protocol filter & compact display setting)
+    val conversationThreads: List<ConversationThreadSummary> = emptyList(),
+    val totalUnreadMessagesCount: Int = 0,
+    val messagesSearchQuery: String = "",
+    val messagesProtocolFilter: MessageProtocol? = null,
+    val compactMessagesUi: Boolean = true,
+    val showMessagesSettingsDialog: Boolean = false,
+    val activeConversationKey: String? = null,
+    val pendingNewRecipientAddress: String? = null,
+    val pendingNewRecipientName: String? = null,
+    val showNewMessageDialog: Boolean = false,
+    val newMessageRecipientInput: String = "",
+    val composerBody: String = "",
+    val composerAttachment: ComposeAttachment? = null,
+    val composerProtocol: MessagingSendProtocol = MessagingSendProtocol.AUTO,
+    val isSendingMessage: Boolean = false,
+    // Hierarchical back-navigation state (Messages is landing tab root; tracks click-order stack & sub-tabs)
+    val currentTab: NavigationTab = NavigationTab.MESSAGES,
+    val tabBackStack: List<NavigationTab> = listOf(NavigationTab.MESSAGES),
     val vaultSubTab: Int = 0, // 0 = Quarantine, 1 = Deleted Test
     val rulesCloudSubTab: Int = 0 // 0 = Rules, 1 = Cloud Backup (compact phone mode)
 ) {
     val hasOpenOverlay: Boolean
-        get() = showMainContactPickerDialog ||
+        get() = showNewMessageDialog ||
+            showMessagesSettingsDialog ||
+            showMainContactPickerDialog ||
             showPermanentDeleteDialog ||
             showAddCustomRuleSheet ||
             showRestoreCloudDialog ||
@@ -182,25 +207,45 @@ class CleanSmsViewModel @JvmOverloads constructor(
     private var reclassifyJob: Job? = null
     private var updateCheckJob: Job? = null
     private var apkDownloadJob: Job? = null
+    private var threadsRecomputeJob: Job? = null
     private var cachedDeviceContacts: List<ContactInfo> = emptyList()
 
     init {
         initializeUpgradeState()
         checkTelephonyState()
         observeLocalDatabase()
+        observeIncomingTelephonyEvents()
         loadInitialData()
         checkForGitHubUpdates(userInitiated = false)
+    }
+
+    private fun observeIncomingTelephonyEvents() {
+        viewModelScope.launch {
+            IncomingTelephonyNotifier.events.collect { event ->
+                if (!_uiState.value.isDemoMode) {
+                    refreshMessages()
+                    val senderLabel = event.sender?.takeIf { it.isNotBlank() }
+                    if (senderLabel != null) {
+                        _uiState.update {
+                            it.copy(snackbarMessage = "New ${event.protocol.displayName} from $senderLabel")
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private fun initializeUpgradeState() {
         val migrationReport = appUpgradeManager.ensureStateMigrated()
         val repoSlug = appUpgradeManager.getGitHubRepoSlug()
         val includePre = appUpgradeManager.getIncludePrereleases()
+        val compactUi = appUpgradeManager.isCompactMessagesUi()
         _uiState.update {
             it.copy(
                 gitHubRepoSlug = repoSlug,
                 includePrereleases = includePre,
-                upgradeMigrationReport = migrationReport
+                upgradeMigrationReport = migrationReport,
+                compactMessagesUi = compactUi
             )
         }
     }
@@ -218,13 +263,18 @@ class CleanSmsViewModel @JvmOverloads constructor(
         return status.isDefaultSmsApp
     }
 
-    fun setSmsPermissions(readGranted: Boolean, writeGranted: Boolean) {
+    fun setSmsPermissions(
+        readGranted: Boolean,
+        writeGranted: Boolean,
+        sendGranted: Boolean = _uiState.value.hasSendSmsPermission
+    ) {
         val prevRead = _uiState.value.hasReadSmsPermission
         val prevWrite = _uiState.value.hasWriteSmsPermission
         _uiState.update {
             it.copy(
                 hasReadSmsPermission = readGranted,
                 hasWriteSmsPermission = writeGranted,
+                hasSendSmsPermission = sendGranted,
                 hasSmsPermission = readGranted,
                 isDemoMode = if (readGranted) false else it.isDemoMode,
                 showPermissionRationaleDialog = false
@@ -539,13 +589,21 @@ class CleanSmsViewModel @JvmOverloads constructor(
                 )
                 val summary = SmsClassifier.computeSummary(classified)
                 val clusters = SmsClassifier.extractDuplicateThreadClusters(classified)
+                val threads = MessagingHelper.buildConversationThreads(
+                    messages = classified,
+                    searchQuery = stateSnapshot.messagesSearchQuery,
+                    protocolFilter = stateSnapshot.messagesProtocolFilter
+                )
+                val totalUnread = MessagingHelper.buildConversationThreads(classified, "").sumOf { it.unreadCount }
 
                 RefreshResult(
                     activeRaw = activeRaw,
                     classified = classified,
                     summary = summary,
                     clusters = clusters,
-                    mergedContacts = mergedContacts
+                    mergedContacts = mergedContacts,
+                    threads = threads,
+                    totalUnread = totalUnread
                 )
             }
 
@@ -556,6 +614,8 @@ class CleanSmsViewModel @JvmOverloads constructor(
                     summary = result.summary,
                     duplicateThreadClusters = result.clusters,
                     availableContacts = result.mergedContacts,
+                    conversationThreads = result.threads,
+                    totalUnreadMessagesCount = result.totalUnread,
                     isScanning = false
                 )
             }
@@ -585,13 +645,44 @@ class CleanSmsViewModel @JvmOverloads constructor(
                 )
                 val summary = SmsClassifier.computeSummary(classified)
                 val clusters = SmsClassifier.extractDuplicateThreadClusters(classified)
-                QuadResult(classified, summary, clusters)
+                val threads = MessagingHelper.buildConversationThreads(
+                    messages = classified,
+                    searchQuery = snapshot.messagesSearchQuery,
+                    protocolFilter = snapshot.messagesProtocolFilter
+                )
+                val totalUnread = MessagingHelper.buildConversationThreads(classified, "").sumOf { it.unreadCount }
+                QuadResult(classified, summary, clusters, threads, totalUnread)
             }
             _uiState.update {
                 it.copy(
                     classifiedMessages = result.classified,
                     summary = result.summary,
-                    duplicateThreadClusters = result.clusters
+                    duplicateThreadClusters = result.clusters,
+                    conversationThreads = result.threads,
+                    totalUnreadMessagesCount = result.totalUnread
+                )
+            }
+        }
+    }
+
+    private fun recomputeConversationThreadsAsync() {
+        threadsRecomputeJob?.cancel()
+        threadsRecomputeJob = viewModelScope.launch {
+            val snapshot = _uiState.value
+            val (threads, totalUnread) = withContext(Dispatchers.Default) {
+                val basePool = snapshot.classifiedMessages.ifEmpty { snapshot.allMessages }
+                val filtered = MessagingHelper.buildConversationThreads(
+                    messages = basePool,
+                    searchQuery = snapshot.messagesSearchQuery,
+                    protocolFilter = snapshot.messagesProtocolFilter
+                )
+                val allUnread = MessagingHelper.buildConversationThreads(basePool, "").sumOf { it.unreadCount }
+                filtered to allUnread
+            }
+            _uiState.update {
+                it.copy(
+                    conversationThreads = threads,
+                    totalUnreadMessagesCount = totalUnread
                 )
             }
         }
@@ -1921,18 +2012,316 @@ class CleanSmsViewModel @JvmOverloads constructor(
         }
     }
 
+    // =========================================================================
+    // Full Messaging App Actions (View, Read, Compose, Send SMS / MMS / RCS)
+    // =========================================================================
+
+    fun setMessagesSearchQuery(query: String) {
+        _uiState.update { it.copy(messagesSearchQuery = query) }
+        recomputeConversationThreadsAsync()
+    }
+
+    fun setMessagesProtocolFilter(protocol: MessageProtocol?) {
+        _uiState.update { it.copy(messagesProtocolFilter = protocol) }
+        recomputeConversationThreadsAsync()
+    }
+
+    fun setCompactMessagesUi(compact: Boolean) {
+        appUpgradeManager.setCompactMessagesUi(compact)
+        _uiState.update { it.copy(compactMessagesUi = compact) }
+    }
+
+    fun openMessagesSettingsDialog() {
+        _uiState.update { it.copy(showMessagesSettingsDialog = true) }
+    }
+
+    fun dismissMessagesSettingsDialog() {
+        _uiState.update { it.copy(showMessagesSettingsDialog = false) }
+    }
+
+    fun openConversation(threadKey: String) {
+        val thread = _uiState.value.conversationThreads.firstOrNull { it.threadKey == threadKey }
+        _uiState.update {
+            it.copy(
+                activeConversationKey = threadKey,
+                pendingNewRecipientAddress = null,
+                pendingNewRecipientName = null,
+                composerAttachment = null
+            )
+        }
+        if (thread != null && thread.unreadCount > 0) {
+            markThreadAsRead(threadKey = threadKey, threadId = thread.threadId, address = thread.address)
+        }
+    }
+
+    fun closeConversation() {
+        _uiState.update {
+            it.copy(
+                activeConversationKey = null,
+                pendingNewRecipientAddress = null,
+                pendingNewRecipientName = null,
+                composerAttachment = null
+            )
+        }
+    }
+
+    fun markThreadAsRead(threadKey: String, threadId: Long = 0L, address: String = "") {
+        val updatedAll = _uiState.value.allMessages.map { msg ->
+            if (MessagingHelper.threadKeyFor(msg) == threadKey && !msg.isRead) {
+                msg.copy(isRead = true)
+            } else {
+                msg
+            }
+        }
+        val updatedClassified = _uiState.value.classifiedMessages.map { msg ->
+            if (MessagingHelper.threadKeyFor(msg) == threadKey && !msg.isRead) {
+                msg.copy(isRead = true)
+            } else {
+                msg
+            }
+        }
+        _uiState.update { state ->
+            val pool = updatedClassified.ifEmpty { updatedAll }
+            state.copy(
+                allMessages = updatedAll,
+                classifiedMessages = updatedClassified,
+                conversationThreads = MessagingHelper.buildConversationThreads(
+                    messages = pool,
+                    searchQuery = state.messagesSearchQuery,
+                    protocolFilter = state.messagesProtocolFilter
+                ),
+                totalUnreadMessagesCount = MessagingHelper.buildConversationThreads(pool, "").sumOf { it.unreadCount }
+            )
+        }
+        if (!_uiState.value.isDemoMode) {
+            viewModelScope.launch(Dispatchers.IO) {
+                repository.markThreadAsRead(threadId = threadId, address = address)
+            }
+        }
+    }
+
+    fun openNewMessageDialog() {
+        _uiState.update { it.copy(showNewMessageDialog = true, newMessageRecipientInput = "") }
+    }
+
+    fun dismissNewMessageDialog() {
+        _uiState.update { it.copy(showNewMessageDialog = false) }
+    }
+
+    fun setNewMessageRecipientInput(value: String) {
+        _uiState.update { it.copy(newMessageRecipientInput = value) }
+    }
+
+    fun startConversationWithRecipient(
+        recipient: String,
+        displayName: String? = null,
+        initialBody: String? = null
+    ) {
+        val trimmed = recipient.trim()
+        if (trimmed.isBlank()) {
+            _uiState.update { it.copy(snackbarMessage = "Enter a valid phone number or select a contact") }
+            return
+        }
+        val stateSnapshot = _uiState.value
+        val matchedContact = stateSnapshot.availableContacts.firstOrNull { c ->
+            c.displayName.equals(trimmed, ignoreCase = true) ||
+                c.phoneNumbers.any { PhoneNormalizer.primaryKey(it) == PhoneNormalizer.primaryKey(trimmed) }
+        }
+        val resolvedAddress = matchedContact?.primaryNumber ?: trimmed
+        val resolvedName = displayName ?: matchedContact?.displayName
+        val targetThreadKey = MessagingHelper.threadKeyForRecipient(resolvedAddress, stateSnapshot.conversationThreads)
+        val existingThread = stateSnapshot.conversationThreads.firstOrNull { it.threadKey == targetThreadKey }
+
+        if (stateSnapshot.currentTab != NavigationTab.MESSAGES) {
+            navigateToTab(NavigationTab.MESSAGES)
+        }
+
+        _uiState.update { state ->
+            state.copy(
+                showNewMessageDialog = false,
+                newMessageRecipientInput = "",
+                activeConversationKey = targetThreadKey,
+                pendingNewRecipientAddress = if (existingThread == null) resolvedAddress else null,
+                pendingNewRecipientName = if (existingThread == null) resolvedName else null,
+                composerBody = initialBody ?: state.composerBody,
+                composerAttachment = null
+            )
+        }
+
+        if (existingThread != null && existingThread.unreadCount > 0) {
+            markThreadAsRead(targetThreadKey, existingThread.threadId, existingThread.address)
+        }
+    }
+
+    fun handleExternalSendIntent(recipient: String, body: String?) {
+        if (_uiState.value.currentTab != NavigationTab.MESSAGES) {
+            navigateToTab(NavigationTab.MESSAGES)
+        }
+        if (recipient.isNotBlank()) {
+            startConversationWithRecipient(recipient = recipient, initialBody = body)
+        } else {
+            _uiState.update {
+                it.copy(
+                    showNewMessageDialog = true,
+                    composerBody = body.orEmpty()
+                )
+            }
+        }
+    }
+
+    fun setComposerBody(body: String) {
+        _uiState.update { it.copy(composerBody = body) }
+    }
+
+    fun setComposerAttachment(attachment: ComposeAttachment?) {
+        _uiState.update { it.copy(composerAttachment = attachment) }
+    }
+
+    fun setComposerProtocol(protocol: MessagingSendProtocol) {
+        _uiState.update { it.copy(composerProtocol = protocol) }
+    }
+
+    fun sendCurrentMessage() {
+        val state = _uiState.value
+        if (state.isSendingMessage) return
+
+        val activeThread = state.conversationThreads.firstOrNull { it.threadKey == state.activeConversationKey }
+        val targetAddress = activeThread?.address ?: state.pendingNewRecipientAddress
+        if (targetAddress.isNullOrBlank()) {
+            _uiState.update { it.copy(snackbarMessage = "Select or enter a recipient first") }
+            return
+        }
+
+        val body = state.composerBody
+        val attachment = state.composerAttachment
+        if (body.isBlank() && attachment == null) {
+            _uiState.update { it.copy(snackbarMessage = "Type a message or attach media") }
+            return
+        }
+
+        val useMms = attachment != null || state.composerProtocol == MessagingSendProtocol.MMS
+        val targetProtocol = when {
+            useMms -> MessageProtocol.MMS
+            state.composerProtocol == MessagingSendProtocol.RCS -> MessageProtocol.RCS_CHAT
+            state.composerProtocol == MessagingSendProtocol.SMS -> MessageProtocol.SMS
+            activeThread?.protocol == MessageProtocol.RCS_CHAT -> MessageProtocol.RCS_CHAT
+            else -> MessageProtocol.SMS
+        }
+
+        val targetThreadId = activeThread?.threadId ?: 0L
+        val targetName = activeThread?.displayName?.takeIf { it != activeThread.address }
+            ?: state.pendingNewRecipientName
+        val targetContactId = activeThread?.contactId
+
+        _uiState.update { it.copy(isSendingMessage = true) }
+
+        viewModelScope.launch {
+            val sendResult = withContext(Dispatchers.IO) {
+                if (useMms) {
+                    repository.sendMmsMessage(
+                        address = targetAddress,
+                        body = body,
+                        attachment = attachment,
+                        threadId = targetThreadId,
+                        contactName = targetName,
+                        contactId = targetContactId,
+                        isDefaultSmsApp = state.isDefaultSmsApp,
+                        hasSendSmsPermission = state.hasSendSmsPermission,
+                        isDemoMode = state.isDemoMode
+                    )
+                } else {
+                    repository.sendSmsMessage(
+                        address = targetAddress,
+                        body = body,
+                        threadId = targetThreadId,
+                        contactName = targetName,
+                        contactId = targetContactId,
+                        preferredProtocol = targetProtocol,
+                        isDefaultSmsApp = state.isDefaultSmsApp,
+                        hasSendSmsPermission = state.hasSendSmsPermission,
+                        isDemoMode = state.isDemoMode
+                    )
+                }
+            }
+
+            if (sendResult.success && sendResult.messageItem != null) {
+                val sentItem = sendResult.messageItem
+                withContext(Dispatchers.IO) {
+                    contactFilterRepository.upsertInboxMessages(listOf(sentItem))
+                }
+                val updatedAll = (listOf(sentItem) + _uiState.value.allMessages)
+                    .distinctBy { it.id }
+                    .sortedByDescending { it.date }
+                val updatedThreads = withContext(Dispatchers.Default) {
+                    MessagingHelper.buildConversationThreads(
+                        messages = updatedAll,
+                        searchQuery = _uiState.value.messagesSearchQuery,
+                        protocolFilter = _uiState.value.messagesProtocolFilter
+                    )
+                }
+                val newKey = MessagingHelper.threadKeyFor(sentItem)
+                val note = sendResult.statusNote.takeIf { it.isNotBlank() && !it.endsWith("(Demo Mode)") }
+
+                _uiState.update { current ->
+                    current.copy(
+                        allMessages = updatedAll,
+                        classifiedMessages = (listOf(sentItem) + current.classifiedMessages).distinctBy { it.id },
+                        conversationThreads = updatedThreads,
+                        activeConversationKey = newKey,
+                        pendingNewRecipientAddress = null,
+                        pendingNewRecipientName = null,
+                        composerBody = "",
+                        composerAttachment = null,
+                        isSendingMessage = false,
+                        snackbarMessage = note ?: current.snackbarMessage
+                    )
+                }
+                reclassifyCurrentMessagesAsync()
+
+                // Simulate realistic SENT -> DELIVERED transition for RCS Chat in Demo Mode
+                if (state.isDemoMode && sentItem.protocol == MessageProtocol.RCS_CHAT) {
+                    launch {
+                        delay(450L)
+                        _uiState.update { current ->
+                            val deliveredList = current.allMessages.map { msg ->
+                                if (msg.id == sentItem.id) {
+                                    msg.copy(rcsDeliveryStatus = RcsDeliveryStatus.DELIVERED)
+                                } else msg
+                            }
+                            current.copy(
+                                allMessages = deliveredList,
+                                conversationThreads = MessagingHelper.buildConversationThreads(
+                                    messages = deliveredList,
+                                    searchQuery = current.messagesSearchQuery,
+                                    protocolFilter = current.messagesProtocolFilter
+                                )
+                            )
+                        }
+                    }
+                }
+            } else {
+                _uiState.update {
+                    it.copy(
+                        isSendingMessage = false,
+                        snackbarMessage = sendResult.errorMessage ?: "Failed to send message"
+                    )
+                }
+            }
+        }
+    }
+
     // Hierarchical Navigation, Tab History (Order of Clicks), and Consistent Back Handling
     fun navigateToTab(tab: NavigationTab) {
         _uiState.update { state ->
             if (state.currentTab == tab) return@update state
-            val nextStack = if (tab == NavigationTab.SCANNER) {
-                listOf(NavigationTab.SCANNER)
+            val nextStack = if (tab == NavigationTab.MESSAGES) {
+                listOf(NavigationTab.MESSAGES)
             } else {
                 val withoutTab = state.tabBackStack.filterNot { it == tab }
-                val anchored = if (withoutTab.firstOrNull() == NavigationTab.SCANNER) {
+                val anchored = if (withoutTab.firstOrNull() == NavigationTab.MESSAGES) {
                     withoutTab
                 } else {
-                    listOf(NavigationTab.SCANNER) + withoutTab
+                    listOf(NavigationTab.MESSAGES) + withoutTab
                 }
                 anchored + tab
             }
@@ -1956,6 +2345,14 @@ class CleanSmsViewModel @JvmOverloads constructor(
     fun dismissTopOverlay(): Boolean {
         val state = _uiState.value
         return when {
+            state.showNewMessageDialog -> {
+                dismissNewMessageDialog()
+                true
+            }
+            state.showMessagesSettingsDialog -> {
+                dismissMessagesSettingsDialog()
+                true
+            }
             state.showMainContactPickerDialog -> {
                 closeMainContactPicker()
                 true
@@ -2010,11 +2407,11 @@ class CleanSmsViewModel @JvmOverloads constructor(
                         tabBackStack = remaining
                     )
                 }
-                state.currentTab != NavigationTab.SCANNER -> {
+                state.currentTab != NavigationTab.MESSAGES -> {
                     navigated = true
                     state.copy(
-                        currentTab = NavigationTab.SCANNER,
-                        tabBackStack = listOf(NavigationTab.SCANNER)
+                        currentTab = NavigationTab.MESSAGES,
+                        tabBackStack = listOf(NavigationTab.MESSAGES)
                     )
                 }
                 else -> state
@@ -2025,13 +2422,27 @@ class CleanSmsViewModel @JvmOverloads constructor(
 
     /**
      * Unified back-navigation handler following hierarchy:
-     * Window Overlays -> In-screen Search/Category/Sub-Tab -> Tab Click-Order Stack -> Exit (returns false).
+     * Window Overlays -> In-screen Conversation/Search/Category/Sub-Tab -> Tab Click-Order Stack -> Exit (returns false).
      */
     fun handleBackPress(isRulesCloudCompact: Boolean = true): Boolean {
         if (dismissTopOverlay()) return true
 
         val state = _uiState.value
         when (state.currentTab) {
+            NavigationTab.MESSAGES -> {
+                if (state.activeConversationKey != null) {
+                    closeConversation()
+                    return true
+                }
+                if (state.messagesSearchQuery.isNotEmpty()) {
+                    setMessagesSearchQuery("")
+                    return true
+                }
+                if (state.messagesProtocolFilter != null) {
+                    setMessagesProtocolFilter(null)
+                    return true
+                }
+            }
             NavigationTab.PREVIEW -> {
                 if (state.searchQuery.isNotEmpty()) {
                     _uiState.update { it.copy(searchQuery = "") }
@@ -2065,13 +2476,17 @@ class CleanSmsViewModel @JvmOverloads constructor(
         val classified: List<SmsMessageItem>,
         val summary: ClassificationSummary,
         val clusters: List<DuplicateThreadCluster>,
-        val mergedContacts: List<ContactInfo>
+        val mergedContacts: List<ContactInfo>,
+        val threads: List<ConversationThreadSummary>,
+        val totalUnread: Int
     )
 
     private data class QuadResult(
         val classified: List<SmsMessageItem>,
         val summary: ClassificationSummary,
-        val clusters: List<DuplicateThreadCluster>
+        val clusters: List<DuplicateThreadCluster>,
+        val threads: List<ConversationThreadSummary>,
+        val totalUnread: Int
     )
 
     companion object {

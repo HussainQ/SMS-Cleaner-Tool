@@ -41,10 +41,10 @@ class BackNavigationTest {
     @Test
     fun viewModel_tabBackStack_tracksOrderOfClicksAndPopsInReverse() {
         val vm = CleanSmsViewModel(app)
-        assertEquals(NavigationTab.SCANNER, vm.uiState.value.currentTab)
-        assertEquals(listOf(NavigationTab.SCANNER), vm.uiState.value.tabBackStack)
+        assertEquals(NavigationTab.MESSAGES, vm.uiState.value.currentTab)
+        assertEquals(listOf(NavigationTab.MESSAGES), vm.uiState.value.tabBackStack)
 
-        // Click Review -> Rules & Cloud -> Vault -> Review (re-focusing moves Review to top)
+        // Click Review -> Rules & Cloud -> Vault -> Scanner -> Review (re-focusing moves Review to top)
         vm.navigateToTab(NavigationTab.PREVIEW)
         vm.navigateToTab(NavigationTab.RULES_CLOUD)
         vm.navigateToTab(NavigationTab.VAULT)
@@ -52,7 +52,7 @@ class BackNavigationTest {
 
         assertEquals(NavigationTab.PREVIEW, vm.uiState.value.currentTab)
         assertEquals(
-            listOf(NavigationTab.SCANNER, NavigationTab.RULES_CLOUD, NavigationTab.VAULT, NavigationTab.PREVIEW),
+            listOf(NavigationTab.MESSAGES, NavigationTab.RULES_CLOUD, NavigationTab.VAULT, NavigationTab.PREVIEW),
             vm.uiState.value.tabBackStack
         )
 
@@ -64,13 +64,13 @@ class BackNavigationTest {
         assertTrue(vm.handleBackPress())
         assertEquals(NavigationTab.RULES_CLOUD, vm.uiState.value.currentTab)
 
-        // Back 3 -> Scanner root
+        // Back 3 -> Messages root
         assertTrue(vm.handleBackPress())
-        assertEquals(NavigationTab.SCANNER, vm.uiState.value.currentTab)
+        assertEquals(NavigationTab.MESSAGES, vm.uiState.value.currentTab)
 
         // Back 4 at root -> returns false so system closes the app
         assertFalse(vm.handleBackPress())
-        assertEquals(listOf(NavigationTab.SCANNER), vm.uiState.value.tabBackStack)
+        assertEquals(listOf(NavigationTab.MESSAGES), vm.uiState.value.tabBackStack)
     }
 
     @Test
@@ -106,11 +106,11 @@ class BackNavigationTest {
         assertEquals(SmsCategory.ALL, vm.uiState.value.selectedCategoryTab)
         assertEquals(NavigationTab.PREVIEW, vm.uiState.value.currentTab)
 
-        // 4. Now tab pops back to Scanner
+        // 4. Now tab pops back to Messages landing root
         assertTrue(vm.handleBackPress())
-        assertEquals(NavigationTab.SCANNER, vm.uiState.value.currentTab)
+        assertEquals(NavigationTab.MESSAGES, vm.uiState.value.currentTab)
 
-        // 5. At Scanner root with no overlays/sub-levels -> allow exit
+        // 5. At Messages root with no overlays/sub-levels -> allow exit
         assertFalse(vm.handleBackPress())
     }
 
@@ -137,15 +137,15 @@ class BackNavigationTest {
         assertEquals(NavigationTab.VAULT, vm.uiState.value.currentTab)
         assertEquals(0, vm.uiState.value.vaultSubTab)
 
-        // Pops Vault -> Scanner
+        // Pops Vault -> Messages root
         assertTrue(vm.handleBackPress())
-        assertEquals(NavigationTab.SCANNER, vm.uiState.value.currentTab)
+        assertEquals(NavigationTab.MESSAGES, vm.uiState.value.currentTab)
 
         // Wide layout skips compact Rules & Cloud sub-tab
         vm.navigateToTab(NavigationTab.RULES_CLOUD)
         vm.setRulesCloudSubTab(1)
         assertTrue(vm.handleBackPress(isRulesCloudCompact = false))
-        assertEquals(NavigationTab.SCANNER, vm.uiState.value.currentTab)
+        assertEquals(NavigationTab.MESSAGES, vm.uiState.value.currentTab)
     }
 
     @Test
@@ -229,11 +229,11 @@ class BackNavigationTest {
         assertEquals(NavigationTab.VAULT, vm.uiState.value.currentTab)
         assertEquals(0, vm.uiState.value.vaultSubTab)
 
-        // 8. Pop Vault -> Scanner root; BackHandler now disables to allow system exit
+        // 8. Pop Vault -> Messages root; BackHandler now disables to allow system exit
         composeRule.runOnIdle { dispatcherOwner!!.onBackPressedDispatcher.onBackPressed() }
         composeRule.waitForIdle()
-        assertEquals(NavigationTab.SCANNER, vm.uiState.value.currentTab)
-        composeRule.onNodeWithTag("preview_clean_button").performScrollTo().assertIsDisplayed()
+        assertEquals(NavigationTab.MESSAGES, vm.uiState.value.currentTab)
+        composeRule.onNodeWithTag("messages_search_input").assertIsDisplayed()
         assertFalse(dispatcherOwner!!.onBackPressedDispatcher.hasEnabledCallbacks())
     }
 
@@ -264,10 +264,10 @@ class BackNavigationTest {
         assertFalse(vm.uiState.value.showAddCustomRuleSheet)
         assertEquals(NavigationTab.RULES_CLOUD, vm.uiState.value.currentTab)
 
-        // Back 2: pops Rules & Cloud -> Scanner root and disables callbacks
+        // Back 2: pops Rules & Cloud -> Messages root and disables callbacks
         composeRule.runOnIdle { dispatcherOwner!!.onBackPressedDispatcher.onBackPressed() }
         composeRule.waitForIdle()
-        assertEquals(NavigationTab.SCANNER, vm.uiState.value.currentTab)
+        assertEquals(NavigationTab.MESSAGES, vm.uiState.value.currentTab)
         assertFalse(dispatcherOwner!!.onBackPressedDispatcher.hasEnabledCallbacks())
     }
 }

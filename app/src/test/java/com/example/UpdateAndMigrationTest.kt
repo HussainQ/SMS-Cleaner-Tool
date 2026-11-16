@@ -487,4 +487,50 @@ class UpdateAndMigrationTest {
         assertFalse(secondReport.wasMultiVersionJump)
         assertTrue(secondReport.appliedMilestones.isEmpty())
     }
+
+    @Test
+    fun appUpgradeManager_upgradeTo170Pre1_recordsMilestoneAndCompactUiDefault() {
+        val prefs = context.getSharedPreferences(AppUpgradeManager.PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit()
+            .clear()
+            .putInt("last_migrated_version_code", 10602)
+            .putString("last_migrated_version_name", "1.6.2-pre.1")
+            .commit()
+
+        val manager = AppUpgradeManager(context)
+        val report = manager.ensureStateMigrated(
+            targetVersionCode = 10700,
+            targetVersionName = "1.7.0-pre.1"
+        )
+
+        assertFalse(report.wasMultiVersionJump)
+        assertEquals("1.6.2-pre.1", report.previousVersionName)
+        assertEquals(10602, report.previousVersionCode)
+        assertEquals(listOf(
+            "v1.7.0: Full SMS/MMS/RCS Messages landing tab, top conversation search & configurable Compact UI settings"
+        ), report.appliedMilestones)
+
+        // Multi-version jump (1.5.0 -> 1.7.0-pre.1) runs all intermediate milestones
+        prefs.edit()
+            .putInt("last_migrated_version_code", 10500)
+            .putString("last_migrated_version_name", "1.5.0-pre.1")
+            .commit()
+        val multiJump = manager.ensureStateMigrated(
+            targetVersionCode = 10700,
+            targetVersionName = "1.7.0-pre.1"
+        )
+        assertTrue(multiJump.wasMultiVersionJump)
+        assertTrue(multiJump.appliedMilestones.any { it.contains("v1.7.0") })
+
+        // SemVer 1.7.0-pre.1 orders cleanly above 1.6.2-pre.1 and encodes to 10700
+        assertTrue(SemanticVersion.parse("v1.7.0-pre.1")!! > SemanticVersion.parse("v1.6.2-pre.1")!!)
+        assertEquals(10700, SemanticVersion.parse("v1.7.0-pre.1")!!.toVersionCode())
+
+        // Compact Messages UI defaults to true and persists updates
+        assertTrue(manager.isCompactMessagesUi())
+        manager.setCompactMessagesUi(false)
+        assertFalse(manager.isCompactMessagesUi())
+        manager.setCompactMessagesUi(true)
+        assertTrue(manager.isCompactMessagesUi())
+    }
 }

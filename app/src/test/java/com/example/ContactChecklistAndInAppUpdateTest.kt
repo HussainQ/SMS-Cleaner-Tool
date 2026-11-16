@@ -253,6 +253,7 @@ class ContactChecklistAndInAppUpdateTest {
                 CleanSmsApp(viewModel = vm)
             }
         }
+        composeRule.onNodeWithTag("nav_tab_scanner").performClick()
         composeRule.waitUntil(timeoutMillis = 5000L) {
             ShadowLooper.idleMainLooper()
             vm.uiState.value.scannerContactEntries.isNotEmpty()

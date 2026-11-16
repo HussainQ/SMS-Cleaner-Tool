@@ -3,15 +3,31 @@ package com.example.data
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
+import android.net.Uri
+import android.os.Build
 import android.provider.ContactsContract
 import android.provider.Telephony
+import android.telephony.SmsManager
 import android.util.Log
+import com.example.model.ComposeAttachment
 import com.example.model.ContactInfo
 import com.example.model.MessageProtocol
 import com.example.model.PhoneNormalizer
 import com.example.model.RcsDeliveryStatus
 import com.example.model.SmsCategory
 import com.example.model.SmsMessageItem
+import com.example.telephony.MmsPduBuilder
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.util.UUID
+
+data class SendMessageResult(
+    val success: Boolean,
+    val messageItem: SmsMessageItem? = null,
+    val persistedUri: Uri? = null,
+    val statusNote: String = "",
+    val errorMessage: String? = null
+)
 
 class SmsRepository(private val context: Context) {
 
@@ -133,7 +149,7 @@ class SmsRepository(private val context: Context) {
     }
 
     /**
-     * Reads all SMS and RCS messages from the device's Telephony ContentProvider
+     * Reads all SMS, MMS, and RCS-indicated messages from the device's Telephony ContentProvider
      * and links them to device Contacts in O(1) per row if READ_CONTACTS is granted.
      */
     fun readDeviceSms(contactIndex: Map<String, ContactInfo> = emptyMap()): List<SmsMessageItem> {
@@ -145,7 +161,8 @@ class SmsRepository(private val context: Context) {
                 Telephony.Sms.BODY,
                 Telephony.Sms.DATE,
                 Telephony.Sms.TYPE,
-                Telephony.Sms.THREAD_ID
+                Telephony.Sms.THREAD_ID,
+                Telephony.Sms.READ
             )
 
             val cursor = context.contentResolver.query(
@@ -163,6 +180,7 @@ class SmsRepository(private val context: Context) {
                 val dateIdx = it.getColumnIndexOrThrow(Telephony.Sms.DATE)
                 val typeIdx = it.getColumnIndexOrThrow(Telephony.Sms.TYPE)
                 val threadIdIdx = it.getColumnIndex(Telephony.Sms.THREAD_ID)
+                val readIdx = it.getColumnIndex(Telephony.Sms.READ)
 
                 while (it.moveToNext()) {
                     val id = it.getLong(idIdx).toString()
@@ -171,6 +189,7 @@ class SmsRepository(private val context: Context) {
                     val date = it.getLong(dateIdx)
                     val type = it.getInt(typeIdx)
                     val threadId = if (threadIdIdx >= 0) it.getLong(threadIdIdx) else 0L
+                    val isRead = if (readIdx >= 0) it.getInt(readIdx) == 1 else true
 
                     // Check for RCS indicators: conversation threads, JIDs, or E.164 phone chats
                     val isRcsChat = threadId > 0 && (address.startsWith("+") || address.contains("@"))
@@ -190,9 +209,12 @@ class SmsRepository(private val context: Context) {
                             threadId = threadId,
                             protocol = if (isRcsChat) MessageProtocol.RCS_CHAT else MessageProtocol.SMS,
                             isRcsChat = isRcsChat,
-                            rcsDeliveryStatus = if (isRcsChat) RcsDeliveryStatus.READ else null,
+                            rcsDeliveryStatus = if (isRcsChat) {
+                                if (type == Telephony.Sms.MESSAGE_TYPE_SENT || isRead) RcsDeliveryStatus.READ else RcsDeliveryStatus.DELIVERED
+                            } else null,
                             contactName = linkedContact?.displayName,
-                            contactId = linkedContact?.id
+                            contactId = linkedContact?.id,
+                            isRead = isRead || type != Telephony.Sms.MESSAGE_TYPE_INBOX
                         )
                     )
                 }
@@ -200,7 +222,507 @@ class SmsRepository(private val context: Context) {
         } catch (e: Exception) {
             Log.e("CleanSMS", "Error reading device SMS/RCS: ${e.message}")
         }
+
+        val mmsList = readDeviceMms(contactIndex)
+        if (mmsList.isNotEmpty()) {
+            messageList.addAll(mmsList)
+            messageList.sortByDescending { it.date }
+        }
         return messageList
+    }
+
+    /**
+     * Reads MMS messages from content://mms along with participant address and text/media parts.
+     */
+    fun readDeviceMms(contactIndex: Map<String, ContactInfo> = emptyMap()): List<SmsMessageItem> {
+        val mmsItems = ArrayList<SmsMessageItem>(16)
+        try {
+            val projection = arrayOf(
+                Telephony.Mms._ID,
+                Telephony.Mms.THREAD_ID,
+                Telephony.Mms.DATE,
+                Telephony.Mms.MESSAGE_BOX,
+                Telephony.Mms.READ,
+                Telephony.Mms.SUBJECT
+            )
+            val cursor = context.contentResolver.query(
+                Telephony.Mms.CONTENT_URI,
+                projection,
+                null,
+                null,
+                "${Telephony.Mms.DATE} DESC"
+            )
+            cursor?.use {
+                val idIdx = it.getColumnIndex(Telephony.Mms._ID)
+                val threadIdx = it.getColumnIndex(Telephony.Mms.THREAD_ID)
+                val dateIdx = it.getColumnIndex(Telephony.Mms.DATE)
+                val boxIdx = it.getColumnIndex(Telephony.Mms.MESSAGE_BOX)
+                val readIdx = it.getColumnIndex(Telephony.Mms.READ)
+                val subIdx = it.getColumnIndex(Telephony.Mms.SUBJECT)
+
+                while (it.moveToNext()) {
+                    if (idIdx < 0) continue
+                    val mmsId = it.getLong(idIdx)
+                    val threadId = if (threadIdx >= 0) it.getLong(threadIdx) else 0L
+                    val rawDateSec = if (dateIdx >= 0) it.getLong(dateIdx) else 0L
+                    val dateMs = if (rawDateSec in 1L..9_999_999_999L) rawDateSec * 1000L else rawDateSec
+                    val msgBox = if (boxIdx >= 0) it.getInt(boxIdx) else Telephony.Mms.MESSAGE_BOX_INBOX
+                    val isInbox = msgBox == Telephony.Mms.MESSAGE_BOX_INBOX
+                    val isRead = if (readIdx >= 0) it.getInt(readIdx) == 1 else true
+                    val subject = if (subIdx >= 0) it.getString(subIdx)?.takeIf { s -> s.isNotBlank() } else null
+
+                    val address = queryMmsParticipantAddress(mmsId, isInbox) ?: "Unknown"
+                    val (bodyText, attachUri, attachMime, attachName) = queryMmsParts(mmsId)
+
+                    val linkedContact = if (contactIndex.isNotEmpty()) {
+                        contactIndex[PhoneNormalizer.primaryKey(address)]
+                            ?: contactIndex[address.trim().lowercase()]
+                    } else null
+
+                    mmsItems.add(
+                        SmsMessageItem(
+                            id = "mms_$mmsId",
+                            address = address,
+                            body = bodyText.ifBlank { subject ?: (attachName?.let { n -> "[Media: $n]" } ?: "[MMS Message]") },
+                            date = dateMs,
+                            type = if (isInbox) Telephony.Sms.MESSAGE_TYPE_INBOX else Telephony.Sms.MESSAGE_TYPE_SENT,
+                            protocol = MessageProtocol.MMS,
+                            threadId = threadId,
+                            contactName = linkedContact?.displayName,
+                            contactId = linkedContact?.id,
+                            isRead = isRead || !isInbox,
+                            attachmentUri = attachUri,
+                            attachmentMimeType = attachMime,
+                            attachmentLabel = attachName,
+                            mmsSubject = subject
+                        )
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("CleanSMS", "Error reading device MMS: ${e.message}")
+        }
+        return mmsItems
+    }
+
+    private fun queryMmsParticipantAddress(mmsId: Long, isInbox: Boolean): String? {
+        val targetAddrType = if (isInbox) 137 else 151 // 137 = FROM, 151 = TO (PduHeaders)
+        val addrUri = Uri.parse("content://mms/$mmsId/addr")
+        var fallback: String? = null
+        try {
+            val cursor = context.contentResolver.query(
+                addrUri,
+                arrayOf(Telephony.Mms.Addr.ADDRESS, Telephony.Mms.Addr.TYPE),
+                null,
+                null,
+                null
+            )
+            cursor?.use {
+                val addrIdx = it.getColumnIndex(Telephony.Mms.Addr.ADDRESS)
+                val typeIdx = it.getColumnIndex(Telephony.Mms.Addr.TYPE)
+                while (it.moveToNext()) {
+                    val addr = if (addrIdx >= 0) it.getString(addrIdx)?.trim() else null
+                    val type = if (typeIdx >= 0) it.getInt(typeIdx) else 0
+                    if (addr.isNullOrBlank() || addr.equals("insert-address-token", ignoreCase = true)) continue
+                    if (type == targetAddrType) return addr
+                    if (fallback == null) fallback = addr
+                }
+            }
+        } catch (_: Exception) {
+        }
+        return fallback
+    }
+
+    private data class MmsPartsResult(
+        val text: String,
+        val attachmentUri: String?,
+        val attachmentMimeType: String?,
+        val attachmentLabel: String?
+    )
+
+    private fun queryMmsParts(mmsId: Long): MmsPartsResult {
+        val partUri = Uri.parse("content://mms/part")
+        val textParts = StringBuilder()
+        var attachUri: String? = null
+        var attachMime: String? = null
+        var attachLabel: String? = null
+
+        try {
+            val cursor = context.contentResolver.query(
+                partUri,
+                arrayOf(
+                    Telephony.Mms.Part._ID,
+                    Telephony.Mms.Part.CONTENT_TYPE,
+                    Telephony.Mms.Part.TEXT,
+                    Telephony.Mms.Part._DATA,
+                    Telephony.Mms.Part.NAME,
+                    Telephony.Mms.Part.CONTENT_LOCATION
+                ),
+                "${Telephony.Mms.Part.MSG_ID} = ?",
+                arrayOf(mmsId.toString()),
+                null
+            )
+            cursor?.use {
+                val idIdx = it.getColumnIndex(Telephony.Mms.Part._ID)
+                val ctIdx = it.getColumnIndex(Telephony.Mms.Part.CONTENT_TYPE)
+                val textIdx = it.getColumnIndex(Telephony.Mms.Part.TEXT)
+                val dataIdx = it.getColumnIndex(Telephony.Mms.Part._DATA)
+                val nameIdx = it.getColumnIndex(Telephony.Mms.Part.NAME)
+                val clIdx = it.getColumnIndex(Telephony.Mms.Part.CONTENT_LOCATION)
+
+                while (it.moveToNext()) {
+                    val partId = if (idIdx >= 0) it.getLong(idIdx) else continue
+                    val ct = (if (ctIdx >= 0) it.getString(ctIdx) else null).orEmpty().lowercase()
+                    if (ct == "text/plain") {
+                        val directText = if (textIdx >= 0) it.getString(textIdx) else null
+                        val resolvedText = if (!directText.isNullOrEmpty()) {
+                            directText
+                        } else if (dataIdx >= 0 && !it.getString(dataIdx).isNullOrBlank()) {
+                            readMmsPartTextStream(Uri.parse("content://mms/part/$partId"))
+                        } else ""
+                        if (resolvedText.isNotBlank()) {
+                            if (textParts.isNotEmpty()) textParts.append("\n")
+                            textParts.append(resolvedText.trim())
+                        }
+                    } else if (ct.startsWith("image/") || ct.startsWith("video/") || ct.startsWith("audio/") || ct == "text/x-vcard") {
+                        if (attachUri == null) {
+                            attachUri = "content://mms/part/$partId"
+                            attachMime = ct
+                            attachLabel = (if (nameIdx >= 0) it.getString(nameIdx) else null)
+                                ?: (if (clIdx >= 0) it.getString(clIdx) else null)
+                                ?: "Attachment"
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {
+        }
+        return MmsPartsResult(textParts.toString(), attachUri, attachMime, attachLabel)
+    }
+
+    private fun readMmsPartTextStream(uri: Uri): String {
+        return try {
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).readText()
+            }.orEmpty()
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    /**
+     * Marks all SMS & MMS rows in a conversation thread as read/seen in Android Telephony
+     * when CleanSMS holds Default SMS or write permissions.
+     */
+    fun markThreadAsRead(threadId: Long, address: String): Boolean {
+        return try {
+            val values = ContentValues().apply {
+                put(Telephony.Sms.READ, 1)
+                put(Telephony.Sms.SEEN, 1)
+            }
+            var updated = 0
+            if (threadId > 0L) {
+                updated += context.contentResolver.update(
+                    Telephony.Sms.CONTENT_URI,
+                    values,
+                    "${Telephony.Sms.THREAD_ID} = ? AND ${Telephony.Sms.READ} = 0",
+                    arrayOf(threadId.toString())
+                )
+                updated += context.contentResolver.update(
+                    Telephony.Mms.CONTENT_URI,
+                    values,
+                    "${Telephony.Mms.THREAD_ID} = ? AND ${Telephony.Mms.READ} = 0",
+                    arrayOf(threadId.toString())
+                )
+            } else if (address.isNotBlank()) {
+                updated += context.contentResolver.update(
+                    Telephony.Sms.CONTENT_URI,
+                    values,
+                    "${Telephony.Sms.ADDRESS} = ? AND ${Telephony.Sms.READ} = 0",
+                    arrayOf(address)
+                )
+            }
+            updated > 0
+        } catch (e: Exception) {
+            Log.w("CleanSMS", "Could not mark thread read in Telephony: ${e.message}")
+            false
+        }
+    }
+
+    private fun resolveSmsManager(): SmsManager? {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                context.getSystemService(SmsManager::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                SmsManager.getDefault()
+            }
+        } catch (t: Throwable) {
+            Log.e("CleanSMS", "Unable to acquire SmsManager: ${t.message}")
+            null
+        }
+    }
+
+    /**
+     * Sends an SMS (or RCS-flagged local chat in demo mode; carrier SMS fallback on device when
+     * third-party RCS transport is restricted by Android) and inserts it into Telephony Sent box
+     * if CleanSMS holds the Default SMS App role.
+     */
+    fun sendSmsMessage(
+        address: String,
+        body: String,
+        threadId: Long = 0L,
+        contactName: String? = null,
+        contactId: String? = null,
+        preferredProtocol: MessageProtocol = MessageProtocol.SMS,
+        isDefaultSmsApp: Boolean,
+        hasSendSmsPermission: Boolean,
+        isDemoMode: Boolean
+    ): SendMessageResult {
+        val trimmedAddress = address.trim()
+        val trimmedBody = body.trim()
+        if (trimmedAddress.isBlank()) {
+            return SendMessageResult(success = false, errorMessage = "Enter a valid phone number or contact.")
+        }
+        if (trimmedBody.isBlank()) {
+            return SendMessageResult(success = false, errorMessage = "Message cannot be empty.")
+        }
+
+        val now = System.currentTimeMillis()
+
+        if (isDemoMode) {
+            val effectiveProto = if (preferredProtocol == MessageProtocol.MMS) MessageProtocol.SMS else preferredProtocol
+            val demoItem = SmsMessageItem(
+                id = "sent_${now}_${UUID.randomUUID().toString().take(6)}",
+                address = trimmedAddress,
+                body = trimmedBody,
+                date = now,
+                type = Telephony.Sms.MESSAGE_TYPE_SENT,
+                protocol = effectiveProto,
+                threadId = threadId,
+                isRcsChat = effectiveProto == MessageProtocol.RCS_CHAT,
+                rcsDeliveryStatus = if (effectiveProto == MessageProtocol.RCS_CHAT) RcsDeliveryStatus.SENT else null,
+                contactName = contactName,
+                contactId = contactId,
+                category = SmsCategory.NORMAL,
+                isSelected = false,
+                isRead = true
+            )
+            val note = if (effectiveProto == MessageProtocol.RCS_CHAT) {
+                "RCS chat reply sent (Demo Mode)"
+            } else {
+                "SMS sent (Demo Mode)"
+            }
+            return SendMessageResult(success = true, messageItem = demoItem, statusNote = note)
+        }
+
+        if (!hasSendSmsPermission) {
+            return SendMessageResult(
+                success = false,
+                errorMessage = "SEND_SMS permission is required to send messages on this device."
+            )
+        }
+
+        val smsManager = resolveSmsManager()
+            ?: return SendMessageResult(
+                success = false,
+                errorMessage = "Device telephony SMS service is unavailable."
+            )
+
+        return try {
+            val parts = smsManager.divideMessage(trimmedBody)
+            if (parts.size > 1) {
+                smsManager.sendMultipartTextMessage(trimmedAddress, null, parts, null, null)
+            } else {
+                smsManager.sendTextMessage(trimmedAddress, null, trimmedBody, null, null)
+            }
+
+            val resolvedThreadId = if (threadId > 0L) {
+                threadId
+            } else {
+                runCatching { Telephony.Threads.getOrCreateThreadId(context, trimmedAddress) }.getOrDefault(0L)
+            }
+
+            var persistedUri: Uri? = null
+            if (isDefaultSmsApp) {
+                val values = ContentValues().apply {
+                    put(Telephony.Sms.ADDRESS, trimmedAddress)
+                    put(Telephony.Sms.BODY, trimmedBody)
+                    put(Telephony.Sms.DATE, now)
+                    put(Telephony.Sms.READ, 1)
+                    put(Telephony.Sms.SEEN, 1)
+                    put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_SENT)
+                    if (resolvedThreadId > 0L) {
+                        put(Telephony.Sms.THREAD_ID, resolvedThreadId)
+                    }
+                }
+                persistedUri = runCatching {
+                    context.contentResolver.insert(Telephony.Sms.Sent.CONTENT_URI, values)
+                }.getOrNull()
+            }
+
+            val rowId = persistedUri?.lastPathSegment ?: "sent_${now}_${UUID.randomUUID().toString().take(6)}"
+            val actualProtocol = if (preferredProtocol == MessageProtocol.RCS_CHAT) {
+                // Public Android APIs restrict third-party apps from native Jibe RCS transport;
+                // transmit reliably over carrier SMS and surface the fallback transparently.
+                MessageProtocol.SMS
+            } else {
+                MessageProtocol.SMS
+            }
+
+            val sentItem = SmsMessageItem(
+                id = rowId,
+                address = trimmedAddress,
+                body = trimmedBody,
+                date = now,
+                type = Telephony.Sms.MESSAGE_TYPE_SENT,
+                protocol = actualProtocol,
+                threadId = resolvedThreadId,
+                isRcsChat = false,
+                contactName = contactName,
+                contactId = contactId,
+                category = SmsCategory.NORMAL,
+                isSelected = false,
+                isRead = true
+            )
+            val note = when {
+                preferredProtocol == MessageProtocol.RCS_CHAT ->
+                    "Sent via carrier SMS fallback (Android limits RCS transport to system Messages)."
+                !isDefaultSmsApp ->
+                    "SMS dispatched via carrier network. Set CleanSMS as Default SMS app to store sent log in Telephony."
+                else -> "SMS sent"
+            }
+            SendMessageResult(
+                success = true,
+                messageItem = sentItem,
+                persistedUri = persistedUri,
+                statusNote = note
+            )
+        } catch (e: SecurityException) {
+            SendMessageResult(
+                success = false,
+                errorMessage = "Permission denied while sending SMS: ${e.message}"
+            )
+        } catch (e: Exception) {
+            Log.e("CleanSMS", "Error sending SMS: ${e.message}", e)
+            SendMessageResult(
+                success = false,
+                errorMessage = "Failed to send SMS: ${e.message ?: "Unknown carrier error"}"
+            )
+        }
+    }
+
+    /**
+     * Sends an MMS message containing text and/or a Photo-Picker-selected media attachment.
+     */
+    fun sendMmsMessage(
+        address: String,
+        body: String,
+        attachment: ComposeAttachment?,
+        threadId: Long = 0L,
+        contactName: String? = null,
+        contactId: String? = null,
+        isDefaultSmsApp: Boolean,
+        hasSendSmsPermission: Boolean,
+        isDemoMode: Boolean
+    ): SendMessageResult {
+        val trimmedAddress = address.trim()
+        val trimmedBody = body.trim()
+        if (trimmedAddress.isBlank()) {
+            return SendMessageResult(success = false, errorMessage = "Enter a valid recipient.")
+        }
+        if (trimmedBody.isBlank() && attachment == null) {
+            return SendMessageResult(success = false, errorMessage = "Add text or attach media before sending MMS.")
+        }
+
+        val now = System.currentTimeMillis()
+        val displayBody = trimmedBody.ifBlank {
+            "[MMS Attachment: ${attachment?.displayName ?: "Media"}]"
+        }
+
+        if (isDemoMode) {
+            val demoItem = SmsMessageItem(
+                id = "mms_sent_${now}_${UUID.randomUUID().toString().take(6)}",
+                address = trimmedAddress,
+                body = displayBody,
+                date = now,
+                type = Telephony.Sms.MESSAGE_TYPE_SENT,
+                protocol = MessageProtocol.MMS,
+                threadId = threadId,
+                contactName = contactName,
+                contactId = contactId,
+                category = SmsCategory.NORMAL,
+                isSelected = false,
+                isRead = true,
+                attachmentUri = attachment?.uriString,
+                attachmentMimeType = attachment?.mimeType,
+                attachmentLabel = attachment?.displayName
+            )
+            return SendMessageResult(
+                success = true,
+                messageItem = demoItem,
+                statusNote = "MMS message sent (Demo Mode)"
+            )
+        }
+
+        if (!hasSendSmsPermission) {
+            return SendMessageResult(
+                success = false,
+                errorMessage = "SEND_SMS permission is required to dispatch MMS."
+            )
+        }
+
+        val smsManager = resolveSmsManager()
+            ?: return SendMessageResult(
+                success = false,
+                errorMessage = "Device telephony MMS service is unavailable."
+            )
+
+        return try {
+            val attachmentBytes = attachment?.let { att ->
+                context.contentResolver.openInputStream(Uri.parse(att.uriString))?.use { it.readBytes() }
+            }
+            val pduBytes = MmsPduBuilder.buildSendReqPduBytes(
+                recipient = trimmedAddress,
+                bodyText = trimmedBody.takeIf { it.isNotBlank() },
+                attachmentBytes = attachmentBytes,
+                attachmentMimeType = attachment?.mimeType ?: "image/jpeg",
+                attachmentFileName = attachment?.displayName ?: "media.jpg"
+            )
+            val preparedPdu = MmsPduBuilder.writePduToCacheFile(context, pduBytes)
+            smsManager.sendMultimediaMessage(context, preparedPdu.contentUri, null, null, null)
+
+            val resolvedThreadId = if (threadId > 0L) {
+                threadId
+            } else {
+                runCatching { Telephony.Threads.getOrCreateThreadId(context, trimmedAddress) }.getOrDefault(0L)
+            }
+
+            val sentItem = SmsMessageItem(
+                id = "mms_sent_${now}_${UUID.randomUUID().toString().take(6)}",
+                address = trimmedAddress,
+                body = displayBody,
+                date = now,
+                type = Telephony.Sms.MESSAGE_TYPE_SENT,
+                protocol = MessageProtocol.MMS,
+                threadId = resolvedThreadId,
+                contactName = contactName,
+                contactId = contactId,
+                category = SmsCategory.NORMAL,
+                isSelected = false,
+                isRead = true,
+                attachmentUri = attachment?.uriString,
+                attachmentMimeType = attachment?.mimeType,
+                attachmentLabel = attachment?.displayName
+            )
+            val note = if (isDefaultSmsApp) "MMS dispatched via carrier" else "MMS dispatched via SmsManager"
+            SendMessageResult(success = true, messageItem = sentItem, statusNote = note)
+        } catch (e: SecurityException) {
+            SendMessageResult(success = false, errorMessage = "Permission denied sending MMS: ${e.message}")
+        } catch (e: Exception) {
+            Log.e("CleanSMS", "Error sending MMS: ${e.message}", e)
+            SendMessageResult(success = false, errorMessage = "Failed to send MMS: ${e.message ?: "Carrier error"}")
+        }
     }
 
     /**
@@ -230,13 +752,20 @@ class SmsRepository(private val context: Context) {
         var deletedCount = 0
         try {
             for (idStr in messageIds) {
-                val idLong = idStr.toLongOrNull() ?: continue
-                val uri = ContentUris.withAppendedId(Telephony.Sms.CONTENT_URI, idLong)
-                val rows = context.contentResolver.delete(uri, null, null)
-                if (rows > 0) deletedCount += rows
+                if (idStr.startsWith("mms_")) {
+                    val mmsIdLong = idStr.removePrefix("mms_").toLongOrNull() ?: continue
+                    val mmsUri = ContentUris.withAppendedId(Telephony.Mms.CONTENT_URI, mmsIdLong)
+                    val rows = context.contentResolver.delete(mmsUri, null, null)
+                    if (rows > 0) deletedCount += rows
+                } else {
+                    val idLong = idStr.toLongOrNull() ?: continue
+                    val uri = ContentUris.withAppendedId(Telephony.Sms.CONTENT_URI, idLong)
+                    val rows = context.contentResolver.delete(uri, null, null)
+                    if (rows > 0) deletedCount += rows
+                }
             }
         } catch (e: Exception) {
-            Log.e("CleanSMS", "Failed to delete SMS/RCS: ${e.message}")
+            Log.e("CleanSMS", "Failed to delete SMS/MMS/RCS: ${e.message}")
         }
         return deletedCount
     }
@@ -495,7 +1024,22 @@ class SmsRepository(private val context: Context) {
                 category = SmsCategory.SPAM
             ),
 
-            // NORMAL / PERSONAL CONVERSATIONS (RCS & SMS)
+            // NORMAL / PERSONAL CONVERSATIONS (RCS, MMS & SMS)
+            SmsMessageItem(
+                id = "demo_norm_rcs_sent",
+                address = "+1 (555) 789-0123",
+                contactName = "Jordan Lee",
+                contactId = "demo_contact_jordan",
+                body = "Heading out now — are we doing weights or cardio first?",
+                date = now - (52 * 60 * 1000),
+                type = 2,
+                protocol = MessageProtocol.RCS_CHAT,
+                threadId = 103L,
+                isRcsChat = true,
+                rcsDeliveryStatus = RcsDeliveryStatus.READ,
+                category = SmsCategory.NORMAL,
+                isRead = true
+            ),
             SmsMessageItem(
                 id = "demo_norm_rcs",
                 address = "+1 (555) 789-0123",
@@ -506,8 +1050,24 @@ class SmsRepository(private val context: Context) {
                 protocol = MessageProtocol.RCS_CHAT,
                 threadId = 103L,
                 isRcsChat = true,
-                rcsDeliveryStatus = RcsDeliveryStatus.READ,
-                category = SmsCategory.NORMAL
+                rcsDeliveryStatus = RcsDeliveryStatus.DELIVERED,
+                category = SmsCategory.NORMAL,
+                isRead = false
+            ),
+            SmsMessageItem(
+                id = "demo_norm_mms_1",
+                address = "+1 (555) 642-7780",
+                contactName = "Maya Lin",
+                contactId = "demo_contact_maya",
+                body = "Check out this sunset view from the ridge trail! Let's hike here next Sunday.",
+                date = now - (90 * 60 * 1000),
+                protocol = MessageProtocol.MMS,
+                threadId = 104L,
+                category = SmsCategory.NORMAL,
+                isRead = false,
+                attachmentMimeType = "image/jpeg",
+                attachmentLabel = "sunset_ridge_trail.jpg",
+                mmsSubject = "Weekend Hike Photos"
             ),
             SmsMessageItem(
                 id = "demo_norm_1",
