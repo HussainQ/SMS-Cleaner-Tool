@@ -240,6 +240,13 @@ class ContactChecklistAndInAppUpdateTest {
 
     @Test
     fun scannerUi_contactChecklist_checksContactAndFiltersSelectedThreads() {
+        val dao = AppDatabase.getInstance(app).cleanSmsDao()
+        runBlocking {
+            dao.clearAllQuarantine()
+            dao.clearFilterSelections(ContactFilterSelectionEntity.SCOPE_SCANNER)
+            dao.clearFilterSelections(ContactFilterSelectionEntity.SCOPE_VAULT)
+        }
+
         val vm = CleanSmsViewModel(app)
         composeRule.setContent {
             CleanSMSTheme {
@@ -260,7 +267,14 @@ class ContactChecklistAndInAppUpdateTest {
         composeRule.onNodeWithTag("scanner_contact_filter_list")
             .performScrollToNode(hasTestTag("scanner_contact_filter_checkbox_${firstContact.id}"))
         composeRule.onNodeWithTag("scanner_contact_filter_checkbox_${firstContact.id}").performClick()
-        composeRule.waitForIdle()
+
+        composeRule.waitUntil(timeoutMillis = 5000L) {
+            ShadowLooper.idleMainLooper()
+            val state = vm.uiState.value
+            state.filterByContactEnabled &&
+                state.selectedContacts.any { it.id == firstContact.id } &&
+                state.contactFilterScope.isActive
+        }
 
         val stateAfterCheck = vm.uiState.value
         assertTrue(stateAfterCheck.filterByContactEnabled)
@@ -272,7 +286,10 @@ class ContactChecklistAndInAppUpdateTest {
         composeRule.onNodeWithTag("scanner_contact_filter_clear_btn")
             .performScrollTo()
             .performClick()
-        composeRule.waitForIdle()
+        composeRule.waitUntil(timeoutMillis = 5000L) {
+            ShadowLooper.idleMainLooper()
+            vm.uiState.value.selectedContacts.isEmpty() && !vm.uiState.value.contactFilterScope.isActive
+        }
         assertTrue(vm.uiState.value.selectedContacts.isEmpty())
     }
 

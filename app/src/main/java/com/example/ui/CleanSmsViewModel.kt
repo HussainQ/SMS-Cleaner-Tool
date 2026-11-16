@@ -50,7 +50,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicInteger
 
 data class CleanSmsUiState(
     val isDemoMode: Boolean = true,
@@ -171,6 +174,9 @@ class CleanSmsViewModel @JvmOverloads constructor(
 
     private val selectedQuarantineIdsFlow = MutableStateFlow<Set<String>>(emptySet())
     private val selectedDeletedTestIdsFlow = MutableStateFlow<Set<String>>(emptySet())
+
+    private val scannerSelectionMutex = Mutex()
+    private val pendingScannerSelectionWrites = AtomicInteger(0)
 
     private var refreshJob: Job? = null
     private var reclassifyJob: Job? = null
@@ -350,16 +356,20 @@ class CleanSmsViewModel @JvmOverloads constructor(
 
         viewModelScope.launch {
             contactFilterRepository.observeScannerSelectedContactsFlow().collect { selected ->
-                _uiState.update { it.copy(selectedContacts = selected) }
+                if (pendingScannerSelectionWrites.get() == 0) {
+                    _uiState.update { it.copy(selectedContacts = selected) }
+                }
             }
         }
 
         viewModelScope.launch {
             contactFilterRepository.observeScannerFilterScopeFlow().collect { scope ->
-                val previousScope = _uiState.value.contactFilterScope
-                _uiState.update { it.copy(contactFilterScope = scope) }
-                if (previousScope != scope && _uiState.value.allMessages.isNotEmpty()) {
-                    reclassifyCurrentMessagesAsync()
+                if (pendingScannerSelectionWrites.get() == 0) {
+                    val previousScope = _uiState.value.contactFilterScope
+                    _uiState.update { it.copy(contactFilterScope = scope) }
+                    if (previousScope != scope && _uiState.value.allMessages.isNotEmpty()) {
+                        reclassifyCurrentMessagesAsync()
+                    }
                 }
             }
         }
@@ -599,80 +609,169 @@ class CleanSmsViewModel @JvmOverloads constructor(
     }
 
     fun toggleContactFilter(enabled: Boolean) {
-        _uiState.update { it.copy(filterByContactEnabled = enabled) }
+        _uiState.update { state ->
+            val nextScope = buildOptimisticContactScope(
+                enabled = enabled,
+                mode = state.contactFilterMode,
+                contacts = state.selectedContacts,
+                entries = state.scannerContactEntries
+            )
+            state.copy(
+                filterByContactEnabled = enabled,
+                contactFilterScope = nextScope
+            )
+        }
         contactFilterRepository.setScannerFilterEnabled(enabled)
+        reclassifyCurrentMessagesAsync()
     }
 
     fun setContactFilterMode(mode: ContactFilterMode) {
-        _uiState.update { it.copy(contactFilterMode = mode) }
+        _uiState.update { state ->
+            val nextScope = buildOptimisticContactScope(
+                enabled = state.filterByContactEnabled,
+                mode = mode,
+                contacts = state.selectedContacts,
+                entries = state.scannerContactEntries
+            )
+            state.copy(
+                contactFilterMode = mode,
+                contactFilterScope = nextScope
+            )
+        }
         contactFilterRepository.setScannerFilterMode(mode)
+        reclassifyCurrentMessagesAsync()
     }
 
     fun toggleSelectedContact(contact: ContactInfo) {
-        val current = _uiState.value.selectedContacts
+        val stateSnapshot = _uiState.value
+        val current = stateSnapshot.selectedContacts
         val exists = current.any { it.id == contact.id }
         val updated = if (exists) {
             current.filterNot { it.id == contact.id }
         } else {
             current + contact
         }
-        val nextEnabled = if (updated.isNotEmpty()) true else _uiState.value.filterByContactEnabled
-        _uiState.update {
-            it.copy(
+        val nextEnabled = if (updated.isNotEmpty()) true else stateSnapshot.filterByContactEnabled
+        _uiState.update { state ->
+            val nextScope = buildOptimisticContactScope(
+                enabled = nextEnabled,
+                mode = state.contactFilterMode,
+                contacts = updated,
+                entries = state.scannerContactEntries
+            )
+            state.copy(
                 selectedContacts = updated,
-                filterByContactEnabled = nextEnabled
+                filterByContactEnabled = nextEnabled,
+                contactFilterScope = nextScope
             )
         }
-        contactFilterRepository.setScannerFilterEnabled(nextEnabled)
-        viewModelScope.launch {
-            contactFilterRepository.replaceSelectedContacts(
-                scope = ContactFilterSelectionEntity.SCOPE_SCANNER,
-                contacts = updated
-            )
-        }
+        reclassifyCurrentMessagesAsync()
+        persistScannerContactsSelection(updated, nextEnabled)
     }
 
     fun setSelectedContacts(contacts: List<ContactInfo>) {
         val nextEnabled = contacts.isNotEmpty()
-        _uiState.update {
-            it.copy(
+        _uiState.update { state ->
+            val nextScope = buildOptimisticContactScope(
+                enabled = nextEnabled,
+                mode = state.contactFilterMode,
+                contacts = contacts,
+                entries = state.scannerContactEntries
+            )
+            state.copy(
                 selectedContacts = contacts,
-                filterByContactEnabled = nextEnabled
+                filterByContactEnabled = nextEnabled,
+                contactFilterScope = nextScope
             )
         }
-        contactFilterRepository.setScannerFilterEnabled(nextEnabled)
-        viewModelScope.launch {
-            contactFilterRepository.replaceSelectedContacts(
-                scope = ContactFilterSelectionEntity.SCOPE_SCANNER,
-                contacts = contacts
-            )
-        }
+        reclassifyCurrentMessagesAsync()
+        persistScannerContactsSelection(contacts, nextEnabled)
     }
 
     fun selectAllFilterContacts() {
-        val state = _uiState.value
-        val all = state.scannerContactEntries.map { it.contact }.ifEmpty { state.availableContacts }
-        val nextEnabled = if (all.isNotEmpty()) true else state.filterByContactEnabled
-        _uiState.update {
-            it.copy(
+        val stateSnapshot = _uiState.value
+        val all = stateSnapshot.scannerContactEntries.map { it.contact }.ifEmpty { stateSnapshot.availableContacts }
+        val nextEnabled = if (all.isNotEmpty()) true else stateSnapshot.filterByContactEnabled
+        _uiState.update { state ->
+            val nextScope = buildOptimisticContactScope(
+                enabled = nextEnabled,
+                mode = state.contactFilterMode,
+                contacts = all,
+                entries = state.scannerContactEntries
+            )
+            state.copy(
                 selectedContacts = all,
-                filterByContactEnabled = nextEnabled
+                filterByContactEnabled = nextEnabled,
+                contactFilterScope = nextScope
             )
         }
-        contactFilterRepository.setScannerFilterEnabled(nextEnabled)
-        viewModelScope.launch {
-            contactFilterRepository.replaceSelectedContacts(
-                scope = ContactFilterSelectionEntity.SCOPE_SCANNER,
-                contacts = all
-            )
-        }
+        reclassifyCurrentMessagesAsync()
+        persistScannerContactsSelection(all, nextEnabled)
     }
 
     fun clearSelectedContacts() {
-        _uiState.update { it.copy(selectedContacts = emptyList()) }
-        viewModelScope.launch {
-            contactFilterRepository.clearSelectedContacts(ContactFilterSelectionEntity.SCOPE_SCANNER)
+        val enabledSnapshot = _uiState.value.filterByContactEnabled
+        _uiState.update { state ->
+            state.copy(
+                selectedContacts = emptyList(),
+                contactFilterScope = ContactThreadFilterScope(
+                    enabled = state.filterByContactEnabled,
+                    mode = state.contactFilterMode
+                )
+            )
         }
+        reclassifyCurrentMessagesAsync()
+        persistScannerContactsSelection(emptyList(), enabledSnapshot)
+    }
+
+    private fun persistScannerContactsSelection(contacts: List<ContactInfo>, filterEnabled: Boolean) {
+        pendingScannerSelectionWrites.incrementAndGet()
+        viewModelScope.launch {
+            try {
+                scannerSelectionMutex.withLock {
+                    if (contacts.isEmpty()) {
+                        contactFilterRepository.clearSelectedContacts(ContactFilterSelectionEntity.SCOPE_SCANNER)
+                    } else {
+                        contactFilterRepository.replaceSelectedContacts(
+                            scope = ContactFilterSelectionEntity.SCOPE_SCANNER,
+                            contacts = contacts
+                        )
+                    }
+                    contactFilterRepository.setScannerFilterEnabled(filterEnabled)
+                }
+            } finally {
+                pendingScannerSelectionWrites.decrementAndGet()
+            }
+        }
+    }
+
+    private fun buildOptimisticContactScope(
+        enabled: Boolean,
+        mode: ContactFilterMode,
+        contacts: List<ContactInfo>,
+        entries: List<ContactThreadEntry>
+    ): ContactThreadFilterScope {
+        if (!enabled || contacts.isEmpty()) {
+            return ContactThreadFilterScope(enabled = enabled, mode = mode)
+        }
+        val selectedIds = contacts.mapTo(HashSet()) { it.id }
+        val tokens = com.example.model.ContactThreadHelper.collectTokensForContacts(contacts)
+        val threadIds = HashSet<Long>()
+        for (entry in entries) {
+            if (entry.contact.id in selectedIds) {
+                threadIds.addAll(entry.threadIds)
+            }
+        }
+        for (contact in contacts) {
+            contact.threadId?.takeIf { it > 0L }?.let { threadIds.add(it) }
+        }
+        return ContactThreadFilterScope(
+            enabled = true,
+            mode = mode,
+            selectedContactIds = selectedIds,
+            selectedThreadIds = threadIds,
+            matchTokens = tokens
+        )
     }
 
     // Vault & Recently Deleted Contact Group Review Filter Controls (Room @Query + Coroutine Flow)
