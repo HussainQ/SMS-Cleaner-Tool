@@ -5,7 +5,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
@@ -19,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.SmsMessageItem
 import com.example.ui.theme.AmberAccent
+import com.example.ui.theme.AppIcons
 import com.example.ui.theme.RedDestructive
 import com.example.ui.theme.TealAccent
 
@@ -118,7 +118,7 @@ fun PermanentDeleteConfirmDialog(
                                         .testTag("delete_dialog_set_default_sms_btn")
                                 ) {
                                     Icon(
-                                        Icons.Default.AdminPanelSettings,
+                                        AppIcons.AdminPanelSettings,
                                         contentDescription = null,
                                         tint = Color.Black,
                                         modifier = Modifier.size(16.dp)

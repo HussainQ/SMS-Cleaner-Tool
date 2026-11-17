@@ -7,7 +7,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -126,7 +129,7 @@ fun RulesAndCloudScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
-                                    Icons.Default.Tune,
+                                    AppIcons.Tune,
                                     contentDescription = null,
                                     tint = if (selectedTab == 0) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(18.dp)
@@ -155,7 +158,7 @@ fun RulesAndCloudScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
-                                    Icons.Default.CloudUpload,
+                                    AppIcons.CloudUpload,
                                     contentDescription = null,
                                     tint = if (selectedTab == 1) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(18.dp)
@@ -254,7 +257,7 @@ private fun CustomRulesPane(
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
-                                Icons.Default.Tune,
+                                AppIcons.Tune,
                                 contentDescription = null,
                                 tint = TealAccent,
                                 modifier = Modifier.size(32.dp)
@@ -477,7 +480,7 @@ private fun CloudBackupPane(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Icon(
-                    Icons.Default.Security,
+                    AppIcons.Security,
                     contentDescription = null,
                     tint = AmberAccent,
                     modifier = Modifier.size(16.dp)
@@ -527,7 +530,7 @@ private fun CloudBackupPane(
                                 modifier = Modifier.size(38.dp)
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Default.CloudQueue, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+                                    Icon(AppIcons.CloudQueue, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
                                 }
                             }
                             Column {
@@ -609,7 +612,7 @@ private fun CloudBackupPane(
                                 modifier = Modifier.size(38.dp)
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Default.Cloud, contentDescription = null, tint = PurpleAccent, modifier = Modifier.size(22.dp))
+                                    Icon(AppIcons.Cloud, contentDescription = null, tint = PurpleAccent, modifier = Modifier.size(22.dp))
                                 }
                             }
                             Column {
@@ -690,7 +693,7 @@ private fun CloudBackupPane(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Icon(
-                            Icons.Default.VpnKey,
+                            AppIcons.VpnKey,
                             contentDescription = null,
                             tint = TealAccent,
                             modifier = Modifier.size(16.dp)
@@ -816,7 +819,7 @@ private fun CloudBackupPane(
                 .height(46.dp)
                 .testTag("manual_backup_button")
         ) {
-            Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp))
+            Icon(AppIcons.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(modifier = Modifier.width(8.dp))
             Text("Back Up to ${uiState.selectedCloudProvider}", fontWeight = FontWeight.Bold, fontSize = 14.sp)
         }
@@ -850,7 +853,7 @@ private fun CloudBackupPane(
                     modifier = Modifier.weight(1f)
                 ) {
                     Icon(
-                        imageVector = if (updateAvailable) Icons.Default.SystemUpdate else Icons.Default.Update,
+                        imageVector = if (updateAvailable) AppIcons.SystemUpdate else AppIcons.Update,
                         contentDescription = null,
                         tint = updateAccent,
                         modifier = Modifier.size(20.dp)
@@ -961,7 +964,7 @@ private fun CloudBackupPane(
                                 modifier = Modifier.testTag("restore_cloud_backup_btn_${record.id}")
                             ) {
                                 Icon(
-                                    Icons.Default.Restore,
+                                    AppIcons.Restore,
                                     contentDescription = null,
                                     modifier = Modifier.size(14.dp)
                                 )

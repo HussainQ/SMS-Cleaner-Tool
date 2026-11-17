@@ -8,7 +8,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -156,7 +157,7 @@ fun AddCustomRuleSheet(
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                             modifier = Modifier.testTag("rule_select_contacts_btn")
                         ) {
-                            Icon(Icons.Default.Contacts, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(AppIcons.Contacts, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = if (contactTokens.isEmpty()) "Select Contacts" else "Edit (${contactTokens.size})",
@@ -324,7 +325,7 @@ fun AddCustomRuleSheet(
                     .testTag("save_rule_button")
             ) {
                 Icon(
-                    imageVector = if (isEditing) Icons.Default.Save else Icons.Default.Add,
+                    imageVector = if (isEditing) AppIcons.Save else Icons.Default.Add,
                     contentDescription = null,
                     modifier = Modifier.size(18.dp)
                 )

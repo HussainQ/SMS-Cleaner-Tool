@@ -22,7 +22,10 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -341,7 +344,7 @@ private fun ConversationListPane(
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Icon(
-                            imageVector = if (compactMode) Icons.Default.Compress else Icons.Default.ViewAgenda,
+                            imageVector = if (compactMode) AppIcons.Compress else AppIcons.ViewAgenda,
                             contentDescription = if (compactMode) "Compact UI On" else "Compact UI Off",
                             tint = if (compactMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(16.dp)
@@ -367,7 +370,7 @@ private fun ConversationListPane(
                             .testTag("messages_settings_btn")
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Tune,
+                            imageVector = AppIcons.Tune,
                             contentDescription = "Messaging display settings",
                             tint = MaterialTheme.colorScheme.primary
                         )
@@ -387,7 +390,7 @@ private fun ConversationListPane(
             ) {
                 FolderFilterChipItem(
                     label = "Inbox",
-                    icon = Icons.Default.Inbox,
+                    icon = AppIcons.Inbox,
                     selected = uiState.messagesFolderFilter == MessageFolderFilter.INBOX,
                     accentColor = MaterialTheme.colorScheme.primary,
                     compactMode = compactMode,
@@ -401,7 +404,7 @@ private fun ConversationListPane(
                 }
                 FolderFilterChipItem(
                     label = archivedLabel,
-                    icon = Icons.Default.Archive,
+                    icon = AppIcons.Archive,
                     selected = uiState.messagesFolderFilter == MessageFolderFilter.ARCHIVED,
                     accentColor = MaterialTheme.colorScheme.secondary,
                     compactMode = compactMode,
@@ -415,7 +418,7 @@ private fun ConversationListPane(
                 }
                 FolderFilterChipItem(
                     label = spamLabel,
-                    icon = Icons.Default.Report,
+                    icon = AppIcons.Report,
                     selected = uiState.messagesFolderFilter == MessageFolderFilter.SPAM,
                     accentColor = Color(0xFFFF6B6B),
                     compactMode = compactMode,
@@ -510,9 +513,9 @@ private fun ConversationListPane(
                     ) {
                         Icon(
                             imageVector = when (uiState.messagesFolderFilter) {
-                                MessageFolderFilter.ARCHIVED -> Icons.Default.Archive
-                                MessageFolderFilter.SPAM -> Icons.Default.VerifiedUser
-                                MessageFolderFilter.INBOX -> Icons.Default.Forum
+                                MessageFolderFilter.ARCHIVED -> AppIcons.Archive
+                                MessageFolderFilter.SPAM -> AppIcons.VerifiedUser
+                                MessageFolderFilter.INBOX -> AppIcons.Forum
                             },
                             contentDescription = "No messages",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -720,7 +723,7 @@ private fun MessagingStatusStrip(
                 modifier = Modifier.weight(1f)
             ) {
                 Icon(
-                    imageVector = if (isDefaultSmsApp) Icons.Default.Verified else Icons.Default.Sms,
+                    imageVector = if (isDefaultSmsApp) AppIcons.Verified else AppIcons.Sms,
                     contentDescription = "Messaging status",
                     tint = if (isDefaultSmsApp) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(if (compactMode) 15.dp else 18.dp)
@@ -890,7 +893,7 @@ private fun ConversationThreadRow(
                     }
                     if (thread.hasAttachments) {
                         Icon(
-                            imageVector = Icons.Default.Image,
+                            imageVector = AppIcons.Image,
                             contentDescription = "Contains MMS attachment",
                             tint = Color(MessageProtocol.MMS.badgeColorHex),
                             modifier = Modifier.size(if (compactMode) 12.dp else 14.dp)
@@ -1018,7 +1021,7 @@ private fun ConversationActionsDialog(
                         )
                 ) {
                     Icon(
-                        imageVector = if (thread.isArchived) Icons.Default.Unarchive else Icons.Default.Archive,
+                        imageVector = if (thread.isArchived) AppIcons.Unarchive else AppIcons.Archive,
                         contentDescription = null,
                         modifier = Modifier.size(18.dp)
                     )
@@ -1039,7 +1042,7 @@ private fun ConversationActionsDialog(
                         )
                 ) {
                     Icon(
-                        imageVector = if (thread.isSpam) Icons.Default.VerifiedUser else Icons.Default.Report,
+                        imageVector = if (thread.isSpam) AppIcons.VerifiedUser else AppIcons.Report,
                         contentDescription = null,
                         modifier = Modifier.size(18.dp)
                     )
@@ -1159,7 +1162,7 @@ private fun ConversationDetailPane(
                             .testTag("conversation_archive_button")
                     ) {
                         Icon(
-                            imageVector = if (thread.isArchived) Icons.Default.Unarchive else Icons.Default.Archive,
+                            imageVector = if (thread.isArchived) AppIcons.Unarchive else AppIcons.Archive,
                             contentDescription = if (thread.isArchived) "Unarchive conversation" else "Archive conversation",
                             tint = if (thread.isArchived) TealAccent else MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1171,7 +1174,7 @@ private fun ConversationDetailPane(
                             .testTag("conversation_spam_button")
                     ) {
                         Icon(
-                            imageVector = if (thread.isSpam) Icons.Default.VerifiedUser else Icons.Default.Report,
+                            imageVector = if (thread.isSpam) AppIcons.VerifiedUser else AppIcons.Report,
                             contentDescription = if (thread.isSpam) "Mark as not spam" else "Mark conversation as spam",
                             tint = if (thread.isSpam) Color(0xFFFF6B6B) else MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1299,7 +1302,7 @@ private fun ConversationDetailPane(
                             .testTag("attach_media_button")
                     ) {
                         Icon(
-                            imageVector = Icons.Default.AddPhotoAlternate,
+                            imageVector = AppIcons.AddPhotoAlternate,
                             contentDescription = "Attach image for MMS",
                             tint = MaterialTheme.colorScheme.primary
                         )
@@ -1490,7 +1493,7 @@ private fun MessageAttachmentCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Default.Image,
+                    imageVector = AppIcons.Image,
                     contentDescription = label,
                     tint = Color(MessageProtocol.MMS.badgeColorHex),
                     modifier = Modifier.size(18.dp)
@@ -1533,7 +1536,7 @@ private fun ComposerAttachmentPreview(
                 modifier = Modifier.weight(1f)
             ) {
                 Icon(
-                    imageVector = Icons.Default.AttachFile,
+                    imageVector = AppIcons.AttachFile,
                     contentDescription = "MMS attachment",
                     tint = Color(MessageProtocol.MMS.badgeColorHex),
                     modifier = Modifier.size(18.dp)
@@ -1578,7 +1581,7 @@ private fun EmptyConversationDetailPlaceholder(
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
-                        imageVector = Icons.Default.Forum,
+                        imageVector = AppIcons.Forum,
                         contentDescription = "Select conversation",
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(32.dp)
@@ -1746,7 +1749,7 @@ private fun MessagesSettingsDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Tune,
+                        imageVector = AppIcons.Tune,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary
                     )

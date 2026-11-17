@@ -13,8 +13,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Launch
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -100,7 +101,7 @@ fun AppUpdatesDialog(
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
-                                    imageVector = if (isUpdateAvailable) Icons.Default.SystemUpdate else Icons.Default.Verified,
+                                    imageVector = if (isUpdateAvailable) AppIcons.SystemUpdate else AppIcons.Verified,
                                     contentDescription = null,
                                     tint = headerTint,
                                     modifier = Modifier.size(22.dp)
@@ -326,7 +327,7 @@ fun AppUpdatesDialog(
                                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                                             ) {
                                                 Icon(
-                                                    Icons.Default.VerifiedUser,
+                                                    AppIcons.VerifiedUser,
                                                     contentDescription = null,
                                                     tint = TealAccent,
                                                     modifier = Modifier.size(16.dp)
@@ -459,7 +460,7 @@ fun AppUpdatesDialog(
                                             contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
                                         ) {
                                             Icon(
-                                                Icons.AutoMirrored.Filled.Launch,
+                                                AppIcons.Launch,
                                                 contentDescription = null,
                                                 modifier = Modifier.size(14.dp)
                                             )
@@ -651,10 +652,10 @@ fun AppUpdatesDialog(
                         ) {
                             Icon(
                                 imageVector = when {
-                                    isPermissionBlocked -> Icons.Default.AdminPanelSettings
-                                    isApkReady -> Icons.Default.InstallMobile
-                                    hasApkForUpdate -> Icons.Default.Download
-                                    else -> Icons.AutoMirrored.Filled.Launch
+                                    isPermissionBlocked -> AppIcons.AdminPanelSettings
+                                    isApkReady -> AppIcons.InstallMobile
+                                    hasApkForUpdate -> AppIcons.Download
+                                    else -> AppIcons.Launch
                                 },
                                 contentDescription = null,
                                 modifier = Modifier.size(18.dp)
@@ -815,7 +816,7 @@ private fun InAppUpdateDownloadCard(
                             .height(44.dp)
                             .testTag("grant_install_permission_btn")
                     ) {
-                        Icon(Icons.Default.AdminPanelSettings, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Icon(AppIcons.AdminPanelSettings, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("Allow App Installs", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
@@ -827,7 +828,7 @@ private fun InAppUpdateDownloadCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(Icons.Default.Verified, contentDescription = null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(18.dp))
+                        Icon(AppIcons.Verified, contentDescription = null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(18.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = if (phase == com.example.update.InAppUpdateInstallPhase.INSTALL_LAUNCHED) {
@@ -864,7 +865,7 @@ private fun InAppUpdateDownloadCard(
                             .height(44.dp)
                             .testTag("install_downloaded_apk_btn")
                     ) {
-                        Icon(Icons.Default.InstallMobile, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Icon(AppIcons.InstallMobile, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("Install Downloaded APK", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }

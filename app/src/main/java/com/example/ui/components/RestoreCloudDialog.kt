@@ -5,8 +5,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -16,6 +14,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.CloudBackupPayload
+import com.example.ui.theme.AppIcons
 import com.example.ui.theme.TealAccent
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -34,7 +33,7 @@ fun RestoreCloudDialog(
         modifier = Modifier.testTag("restore_cloud_dialog"),
         icon = {
             Icon(
-                imageVector = Icons.Default.CloudDownload,
+                imageVector = AppIcons.CloudDownload,
                 contentDescription = "Restore",
                 tint = TealAccent,
                 modifier = Modifier.size(36.dp)
@@ -80,7 +79,7 @@ fun RestoreCloudDialog(
                         .padding(8.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    items(payload.messages) { msg ->
+                    items(payload.messages, key = { it.id }) { msg ->
                         Column {
                             Text(
                                 text = "${msg.address}: ${msg.body.take(50)}...",

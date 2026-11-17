@@ -43,6 +43,13 @@ data class ConversationThreadSummary(
     val isUnread: Boolean get() = unreadCount > 0
 }
 
+data class ConversationThreadsWithMetrics(
+    val threads: List<ConversationThreadSummary> = emptyList(),
+    val inboxUnreadCount: Int = 0,
+    val archivedThreadsCount: Int = 0,
+    val spamThreadsCount: Int = 0
+)
+
 object MessagingHelper {
 
     fun threadKeyFor(msg: SmsMessageItem): String {
@@ -78,92 +85,146 @@ object MessagingHelper {
         protocolFilter: MessageProtocol? = null,
         folderFilter: MessageFolderFilter? = MessageFolderFilter.INBOX
     ): List<ConversationThreadSummary> {
-        if (messages.isEmpty()) return emptyList()
+        return buildConversationThreadsAndMetrics(
+            messages = messages,
+            searchQuery = searchQuery,
+            protocolFilter = protocolFilter,
+            folderFilter = folderFilter
+        ).threads
+    }
 
-        val grouped = LinkedHashMap<String, MutableList<SmsMessageItem>>()
+    /**
+     * Single-pass thread grouping + cross-folder metrics calculation.
+     * Eliminates redundant second passes when UI needs both active folder threads and folder badges.
+     */
+    fun buildConversationThreadsAndMetrics(
+        messages: List<SmsMessageItem>,
+        searchQuery: String = "",
+        protocolFilter: MessageProtocol? = null,
+        folderFilter: MessageFolderFilter? = MessageFolderFilter.INBOX
+    ): ConversationThreadsWithMetrics {
+        if (messages.isEmpty()) return ConversationThreadsWithMetrics()
+
+        val grouped = LinkedHashMap<String, MutableList<SmsMessageItem>>(minOf(messages.size, 256))
         for (msg in messages) {
             if (msg.isQuarantined) continue
             val key = threadKeyFor(msg)
-            grouped.getOrPut(key) { ArrayList() }.add(msg)
+            grouped.getOrPut(key) { ArrayList(4) }.add(msg)
         }
+        if (grouped.isEmpty()) return ConversationThreadsWithMetrics()
 
-        val summaries = grouped.map { (key, list) ->
-            val chronological = list.sortedWith(
-                compareBy<SmsMessageItem> { it.date }.thenBy { it.id }
-            )
+        val query = searchQuery.trim()
+        val hasQuery = query.isNotEmpty()
+        val queryDigits = if (hasQuery) PhoneNormalizer.digitsOnly(query) else ""
+
+        var inboxUnread = 0
+        var archivedCount = 0
+        var spamCount = 0
+        val matchingSummaries = ArrayList<ConversationThreadSummary>(grouped.size)
+        val msgChronoComparator = compareBy<SmsMessageItem> { it.date }.thenBy { it.id }
+
+        for ((key, list) in grouped) {
+            var unreadCount = 0
+            var hasExplicitOverrideNotSpam = false
+            var anySpamMarked = false
+            var allSpamCategory = true
+            var anyArchived = false
+
+            for (i in 0 until list.size) {
+                val m = list[i]
+                if (m.type == 1 && !m.isRead) unreadCount++
+                if (m.folderSource == FOLDER_SOURCE_USER_OVERRIDE && !m.isSpamMarked) {
+                    hasExplicitOverrideNotSpam = true
+                }
+                if (m.isSpamMarked) anySpamMarked = true
+                if (m.category != SmsCategory.SPAM) allSpamCategory = false
+                if (m.isArchived) anyArchived = true
+            }
+
+            val isSpamThread = anySpamMarked || (!hasExplicitOverrideNotSpam && allSpamCategory)
+            val isArchivedThread = !isSpamThread && anyArchived
+
+            when {
+                isSpamThread -> spamCount++
+                isArchivedThread -> archivedCount++
+                else -> inboxUnread += unreadCount
+            }
+
+            val matchesFolder = when (folderFilter) {
+                MessageFolderFilter.INBOX -> !isArchivedThread && !isSpamThread
+                MessageFolderFilter.ARCHIVED -> isArchivedThread && !isSpamThread
+                MessageFolderFilter.SPAM -> isSpamThread
+                null -> true
+            }
+            if (!matchesFolder) continue
+
+            val chronological = if (list.size <= 1) list else list.sortedWith(msgChronoComparator)
             val latest = chronological.last()
-            val primaryParticipant = chronological.firstOrNull { !it.contactName.isNullOrBlank() } ?: latest
-            val address = chronological.firstOrNull { it.address.isNotBlank() && it.address != "Unknown" }?.address
-                ?: latest.address
-            val contactName = primaryParticipant.contactName?.takeIf { it.isNotBlank() }
-            val displayName = contactName ?: address
-            val contactId = chronological.firstNotNullOfOrNull { it.contactId?.takeIf { id -> id.isNotBlank() } }
-            val unreadCount = chronological.count { it.type == 1 && !it.isRead }
             val hasAttachments = chronological.any { !it.attachmentUri.isNullOrBlank() || it.protocol == MessageProtocol.MMS }
             val protocol = when {
                 latest.protocol == MessageProtocol.MMS || !latest.attachmentUri.isNullOrBlank() -> MessageProtocol.MMS
                 chronological.any { it.protocol == MessageProtocol.RCS_CHAT || it.isRcsChat } -> MessageProtocol.RCS_CHAT
                 else -> MessageProtocol.SMS
             }
+
+            if (protocolFilter != null &&
+                protocol != protocolFilter &&
+                chronological.none { it.protocol == protocolFilter }
+            ) {
+                continue
+            }
+
+            val primaryParticipant = chronological.firstOrNull { !it.contactName.isNullOrBlank() } ?: latest
+            val address = chronological.firstOrNull { it.address.isNotBlank() && it.address != "Unknown" }?.address
+                ?: latest.address
+            val contactName = primaryParticipant.contactName?.takeIf { it.isNotBlank() }
+            val displayName = contactName ?: address
+
+            if (hasQuery) {
+                val matchesSearch = displayName.contains(query, ignoreCase = true) ||
+                    address.contains(query, ignoreCase = true) ||
+                    (queryDigits.isNotEmpty() && PhoneNormalizer.digitsOnly(address).contains(queryDigits)) ||
+                    chronological.any { msg ->
+                        msg.body.contains(query, ignoreCase = true) ||
+                            (msg.mmsSubject?.contains(query, ignoreCase = true) == true)
+                    }
+                if (!matchesSearch) continue
+            }
+
+            val contactId = chronological.firstNotNullOfOrNull { it.contactId?.takeIf { id -> id.isNotBlank() } }
             val threadId = chronological.firstOrNull { it.threadId > 0L }?.threadId ?: 0L
             val hasClutter = chronological.any { it.isCleanCandidate }
-            val isExplicitOverrideNotSpam = chronological.any {
-                it.folderSource == FOLDER_SOURCE_USER_OVERRIDE && !it.isSpamMarked
-            }
-            val isSpamThread = chronological.any { it.isSpamMarked } ||
-                (!isExplicitOverrideNotSpam && chronological.all { it.category == SmsCategory.SPAM })
-            val isArchivedThread = !isSpamThread && chronological.any { it.isArchived }
             val resolvedSource = chronological.firstNotNullOfOrNull {
                 it.folderSource.takeIf { src -> src.isNotBlank() && src != FOLDER_SOURCE_USER_OVERRIDE }
             } ?: if (isSpamThread) FOLDER_SOURCE_SMART_SPAM else ""
 
-            ConversationThreadSummary(
-                threadKey = key,
-                threadId = threadId,
-                address = address,
-                displayName = displayName,
-                contactId = contactId,
-                lastMessage = latest,
-                messages = chronological,
-                unreadCount = unreadCount,
-                protocol = protocol,
-                hasAttachments = hasAttachments,
-                hasCleanableClutter = hasClutter,
-                isArchived = isArchivedThread,
-                isSpam = isSpamThread,
-                folderSource = resolvedSource
+            matchingSummaries.add(
+                ConversationThreadSummary(
+                    threadKey = key,
+                    threadId = threadId,
+                    address = address,
+                    displayName = displayName,
+                    contactId = contactId,
+                    lastMessage = latest,
+                    messages = chronological,
+                    unreadCount = unreadCount,
+                    protocol = protocol,
+                    hasAttachments = hasAttachments,
+                    hasCleanableClutter = hasClutter,
+                    isArchived = isArchivedThread,
+                    isSpam = isSpamThread,
+                    folderSource = resolvedSource
+                )
             )
-        }.sortedByDescending { it.lastMessage.date }
-
-        val folderFiltered = when (folderFilter) {
-            MessageFolderFilter.INBOX -> summaries.filter { !it.isArchived && !it.isSpam }
-            MessageFolderFilter.ARCHIVED -> summaries.filter { it.isArchived && !it.isSpam }
-            MessageFolderFilter.SPAM -> summaries.filter { it.isSpam }
-            null -> summaries
         }
 
-        val protocolFiltered = if (protocolFilter == null) {
-            folderFiltered
-        } else {
-            folderFiltered.filter { thread ->
-                thread.protocol == protocolFilter ||
-                    thread.messages.any { it.protocol == protocolFilter }
-            }
-        }
-
-        val query = searchQuery.trim().lowercase()
-        if (query.isEmpty()) return protocolFiltered
-
-        val queryDigits = PhoneNormalizer.digitsOnly(query)
-        return protocolFiltered.filter { thread ->
-            thread.displayName.lowercase().contains(query) ||
-                thread.address.lowercase().contains(query) ||
-                (queryDigits.isNotEmpty() && PhoneNormalizer.digitsOnly(thread.address).contains(queryDigits)) ||
-                thread.messages.any { msg ->
-                    msg.body.lowercase().contains(query) ||
-                        (msg.mmsSubject?.lowercase()?.contains(query) == true)
-                }
-        }
+        matchingSummaries.sortByDescending { it.lastMessage.date }
+        return ConversationThreadsWithMetrics(
+            threads = matchingSummaries,
+            inboxUnreadCount = inboxUnread,
+            archivedThreadsCount = archivedCount,
+            spamThreadsCount = spamCount
+        )
     }
 
     const val FOLDER_SOURCE_USER_OVERRIDE = "CLEANSMS_USER_OVERRIDE"

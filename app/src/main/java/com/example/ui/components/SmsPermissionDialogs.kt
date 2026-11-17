@@ -10,8 +10,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Launch
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -48,7 +50,7 @@ fun SmsPermissionRationaleDialog(
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
-                        imageVector = Icons.Default.MarkChatRead,
+                        imageVector = AppIcons.MarkChatRead,
                         contentDescription = "SMS Permissions",
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(28.dp)
@@ -144,7 +146,7 @@ fun SmsPermissionRationaleDialog(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Icon(
-                            imageVector = if (hasWritePermission) Icons.Default.CheckCircle else Icons.Default.DeleteSweep,
+                            imageVector = if (hasWritePermission) Icons.Default.CheckCircle else AppIcons.DeleteSweep,
                             contentDescription = null,
                             tint = if (hasWritePermission) TealAccent else MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)
@@ -194,7 +196,7 @@ fun SmsPermissionRationaleDialog(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Shield,
+                            imageVector = AppIcons.Shield,
                             contentDescription = null,
                             tint = TealAccent,
                             modifier = Modifier.size(16.dp)
@@ -305,7 +307,7 @@ fun SmsPermissionSettingsDialog(
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier.testTag("open_app_settings_btn")
             ) {
-                Icon(Icons.AutoMirrored.Filled.Launch, contentDescription = null, modifier = Modifier.size(16.dp))
+                Icon(AppIcons.Launch, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
                 Text("Open App Settings", fontWeight = FontWeight.Bold, fontSize = 13.sp)
             }

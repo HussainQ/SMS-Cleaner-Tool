@@ -1,27 +1,22 @@
 package com.example.update
 
-import com.squareup.moshi.Json
-import com.squareup.moshi.JsonClass
-
-@JsonClass(generateAdapter = true)
 data class GitHubAssetDto(
-    @param:Json(name = "name") val name: String = "",
-    @param:Json(name = "browser_download_url") val browserDownloadUrl: String = "",
-    @param:Json(name = "size") val size: Long = 0L,
-    @param:Json(name = "content_type") val contentType: String = "",
-    @param:Json(name = "digest") val digest: String? = null
+    val name: String = "",
+    val browserDownloadUrl: String = "",
+    val size: Long = 0L,
+    val contentType: String = "",
+    val digest: String? = null
 )
 
-@JsonClass(generateAdapter = true)
 data class GitHubReleaseDto(
-    @param:Json(name = "tag_name") val tagName: String = "",
-    @param:Json(name = "name") val name: String? = null,
-    @param:Json(name = "body") val body: String? = null,
-    @param:Json(name = "html_url") val htmlUrl: String = "",
-    @param:Json(name = "prerelease") val prerelease: Boolean = false,
-    @param:Json(name = "draft") val draft: Boolean = false,
-    @param:Json(name = "published_at") val publishedAt: String? = null,
-    @param:Json(name = "assets") val assets: List<GitHubAssetDto> = emptyList()
+    val tagName: String = "",
+    val name: String? = null,
+    val body: String? = null,
+    val htmlUrl: String = "",
+    val prerelease: Boolean = false,
+    val draft: Boolean = false,
+    val publishedAt: String? = null,
+    val assets: List<GitHubAssetDto> = emptyList()
 )
 
 data class GitHubApkAsset(

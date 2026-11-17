@@ -14,12 +14,15 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -28,6 +31,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -59,12 +64,17 @@ import com.example.ui.theme.CleanSMSTheme
 import com.example.ui.theme.LocalCleanSmsThemeManaged
 import java.io.File
 
-enum class NavigationTab(val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
-    MESSAGES("Messages", Icons.Default.Forum),
-    SCANNER("Scanner", Icons.Default.Dashboard),
-    PREVIEW("Review", Icons.Default.CleaningServices),
-    VAULT("Vault", Icons.Default.Restore),
-    RULES_CLOUD("Rules & Cloud", Icons.Default.Tune)
+import androidx.annotation.DrawableRes
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.vectorResource
+import com.example.ui.theme.AppIcons
+
+enum class NavigationTab(val title: String, @param:DrawableRes val iconRes: Int) {
+    MESSAGES("Messages", R.drawable.ic_m_forum),
+    SCANNER("Scanner", R.drawable.ic_m_dashboard),
+    PREVIEW("Review", R.drawable.ic_m_cleaning_services),
+    VAULT("Vault", R.drawable.ic_m_restore),
+    RULES_CLOUD("Rules & Cloud", R.drawable.ic_m_tune)
 }
 
 const val PERMISSION_WRITE_SMS = "android.permission.WRITE_SMS"
@@ -524,7 +534,7 @@ fun CleanSmsApp(
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
-                                    imageVector = Icons.Default.CleaningServices,
+                                    imageVector = AppIcons.CleaningServices,
                                     contentDescription = "Logo",
                                     tint = MaterialTheme.colorScheme.onPrimary,
                                     modifier = Modifier.size(24.dp)
@@ -567,7 +577,7 @@ fun CleanSmsApp(
                                         }
                                     }
                                 ) {
-                                    Icon(tab.icon, contentDescription = tab.title)
+                                    Icon(ImageVector.vectorResource(tab.iconRes), contentDescription = tab.title)
                                 }
                             },
                             label = { Text(tab.title, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -670,7 +680,7 @@ fun CleanSmsApp(
                                         }
                                     ) {
                                         Icon(
-                                            imageVector = if (hasUpdate) Icons.Default.SystemUpdate else Icons.Default.Update,
+                                            imageVector = if (hasUpdate) AppIcons.SystemUpdate else AppIcons.Update,
                                             contentDescription = "Check for GitHub Updates",
                                             tint = if (hasUpdate) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface
                                         )
@@ -700,6 +710,7 @@ fun CleanSmsApp(
                             onPickMedia = pickMediaAction,
                             onNavigateToPreview = { viewModel.navigateToTab(NavigationTab.PREVIEW) }
                         )
+                        SmsScanProgressOverlay(isScanning = uiState.isScanning)
                     }
                 }
             }
@@ -724,7 +735,7 @@ fun CleanSmsApp(
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
                                         Icon(
-                                            imageVector = Icons.Default.CleaningServices,
+                                            imageVector = AppIcons.CleaningServices,
                                             contentDescription = "Logo",
                                             tint = MaterialTheme.colorScheme.onPrimary,
                                             modifier = Modifier.size(20.dp)
@@ -806,7 +817,7 @@ fun CleanSmsApp(
                                     }
                                 ) {
                                     Icon(
-                                        imageVector = if (hasUpdate) Icons.Default.SystemUpdate else Icons.Default.Update,
+                                        imageVector = if (hasUpdate) AppIcons.SystemUpdate else AppIcons.Update,
                                         contentDescription = "Check for GitHub Updates",
                                         tint = if (hasUpdate) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface
                                     )
@@ -861,7 +872,7 @@ fun CleanSmsApp(
                                             }
                                         }
                                     ) {
-                                        Icon(tab.icon, contentDescription = tab.title)
+                                        Icon(ImageVector.vectorResource(tab.iconRes), contentDescription = tab.title)
                                     }
                                 },
                                 label = {
@@ -896,6 +907,7 @@ fun CleanSmsApp(
                         onPickMedia = pickMediaAction,
                         onNavigateToPreview = { viewModel.navigateToTab(NavigationTab.PREVIEW) }
                     )
+                    SmsScanProgressOverlay(isScanning = uiState.isScanning)
                 }
             }
         }
@@ -1045,6 +1057,30 @@ private fun AdaptiveCleanSmsThemeIfUnmanaged(
             useDeviceMaterialTheme = useDeviceMaterialTheme,
             themeManaged = true,
             content = content
+        )
+    }
+}
+
+@Composable
+fun BoxScope.SmsScanProgressOverlay(isScanning: Boolean) {
+    AnimatedVisibility(
+        visible = isScanning,
+        enter = fadeIn(),
+        exit = fadeOut(),
+        modifier = Modifier
+            .align(Alignment.TopCenter)
+            .fillMaxWidth()
+    ) {
+        LinearProgressIndicator(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(3.dp)
+                .semantics {
+                    contentDescription = "Scanning SMS, MMS, and RCS inbox"
+                }
+                .testTag("sms_scan_progress_bar"),
+            color = MaterialTheme.colorScheme.primary,
+            trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
         )
     }
 }

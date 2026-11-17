@@ -109,6 +109,9 @@ class AppUpgradeManager(private val context: Context) {
             if (effectivePrev in 1 until 10702 && targetVersionCode >= 10702) {
                 applied.add("v1.7.2: Device Material UI & Material You dynamic theming with Settings toggle")
             }
+            if (effectivePrev in 1 until 10703 && targetVersionCode >= 10703) {
+                applied.add("v1.7.3: Lightweight refactor (local vector icons, R8 shrinking & OkHttp updater), faster scanner/Room pipelines & indeterminate scan progress bar")
+            }
             if (prefs.getString(KEY_GITHUB_REPO, null)?.equals(LEGACY_PLACEHOLDER_REPO, ignoreCase = true) == true) {
                 prefs.edit().putString(KEY_GITHUB_REPO, DEFAULT_GITHUB_REPO).apply()
             }

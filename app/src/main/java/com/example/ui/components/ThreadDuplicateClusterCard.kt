@@ -4,7 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -58,7 +59,7 @@ fun ThreadDuplicateClusterCard(
                     modifier = Modifier.weight(1f, fill = false)
                 ) {
                     Icon(
-                        imageVector = if (cluster.isRcs) Icons.Default.ChatBubble else Icons.Default.Forum,
+                        imageVector = if (cluster.isRcs) AppIcons.ChatBubble else AppIcons.Forum,
                         contentDescription = null,
                         tint = if (cluster.isRcs) MaterialTheme.colorScheme.primary else AmberAccent,
                         modifier = Modifier.size(18.dp)
@@ -189,7 +190,7 @@ fun ThreadDuplicateClusterCard(
                     modifier = Modifier.testTag("fix_thread_button_${cluster.threadId}")
                 ) {
                     Icon(
-                        Icons.Default.CleaningServices,
+                        AppIcons.CleaningServices,
                         contentDescription = null,
                         modifier = Modifier.size(14.dp)
                     )

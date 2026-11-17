@@ -10,7 +10,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -133,7 +135,7 @@ fun ContactFilterChecklist(
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
-                                imageVector = Icons.Default.Contacts,
+                                imageVector = AppIcons.Contacts,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(18.dp)
@@ -205,7 +207,7 @@ fun ContactFilterChecklist(
                         onClick = { onSelectFilterMode(ContactFilterMode.PROTECT_CONTACTS) },
                         label = { Text("Protect (VIP)", fontSize = 11.sp) },
                         leadingIcon = if (filterMode == ContactFilterMode.PROTECT_CONTACTS) {
-                            { Icon(Icons.Default.Shield, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                            { Icon(AppIcons.Shield, contentDescription = null, modifier = Modifier.size(14.dp)) }
                         } else null,
                         modifier = Modifier.testTag("contact_mode_protect")
                     )
@@ -216,7 +218,7 @@ fun ContactFilterChecklist(
                             modifier = Modifier.testTag("main_choose_contacts_button")
                         ) {
                             Icon(
-                                imageVector = Icons.Default.OpenInFull,
+                                imageVector = AppIcons.OpenInFull,
                                 contentDescription = "Open Full Contacts Picker",
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(18.dp)

@@ -1,22 +1,20 @@
 package com.example.update
 
-import com.squareup.moshi.Moshi
-import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import retrofit2.Retrofit
-import retrofit2.converter.moshi.MoshiConverterFactory
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /**
- * Fetches GitHub releases over HTTPS, resolves multi-version upgrade paths across arbitrary version gaps,
- * locates APK + SHA-256 verification assets, and prepares zero-permission external download intents.
+ * Fetches GitHub releases over HTTPS using OkHttp + built-in org.json, resolves multi-version
+ * upgrade paths across arbitrary version gaps, locates APK + SHA-256 verification assets, and
+ * prepares verified in-app APK downloads.
  */
 class GitHubUpdateRepository(
-    private val okHttpClient: OkHttpClient = defaultClient(),
-    private val api: GitHubUpdateApi = createApi(okHttpClient)
+    private val okHttpClient: OkHttpClient = defaultClient()
 ) {
 
     suspend fun checkForUpdates(
@@ -33,33 +31,40 @@ class GitHubUpdateRepository(
         val normalizedSlug = "$owner/$repo"
 
         try {
-            val response = api.listReleases(owner = owner, repo = repo)
-            val rawReleases = when {
-                response.isSuccessful -> response.body().orEmpty()
-                response.code() == 404 -> {
-                    return@withContext Result.failure(
-                        IllegalStateException("Repository '$normalizedSlug' or its releases could not be found on GitHub (HTTP 404).")
-                    )
-                }
-                response.code() == 403 || response.code() == 429 -> {
-                    return@withContext Result.failure(
-                        IllegalStateException("GitHub API rate limit reached (HTTP ${response.code()}). Open GitHub Releases directly or retry shortly.")
-                    )
-                }
-                else -> {
-                    // Fallback to /releases/latest if list fails unexpectedly
-                    val latestResp = api.getLatestStableRelease(owner = owner, repo = repo)
-                    if (latestResp.isSuccessful && latestResp.body() != null) {
-                        listOf(latestResp.body()!!)
-                    } else {
+            val listRequest = githubApiRequest("https://api.github.com/repos/$owner/$repo/releases?per_page=100")
+            val rawReleases = okHttpClient.newCall(listRequest).execute().use { response ->
+                when {
+                    response.isSuccessful -> {
+                        val payload = response.body?.string().orEmpty()
+                        parseReleasesArray(payload)
+                    }
+                    response.code == 404 -> {
                         return@withContext Result.failure(
-                            IllegalStateException("GitHub returned HTTP ${response.code()} while checking updates.")
+                            IllegalStateException("Repository '$normalizedSlug' or its releases could not be found on GitHub (HTTP 404).")
                         )
+                    }
+                    response.code == 403 || response.code == 429 -> {
+                        return@withContext Result.failure(
+                            IllegalStateException("GitHub API rate limit reached (HTTP ${response.code}). Open GitHub Releases directly or retry shortly.")
+                        )
+                    }
+                    else -> {
+                        val latestRequest = githubApiRequest("https://api.github.com/repos/$owner/$repo/releases/latest")
+                        okHttpClient.newCall(latestRequest).execute().use { latestResp ->
+                            val latestPayload = latestResp.body?.string().orEmpty()
+                            if (latestResp.isSuccessful && latestPayload.isNotBlank()) {
+                                listOf(parseReleaseObject(JSONObject(latestPayload)))
+                            } else {
+                                return@withContext Result.failure(
+                                    IllegalStateException("GitHub returned HTTP ${response.code} while checking updates.")
+                                )
+                            }
+                        }
                     }
                 }
             }
 
-            // If stable-only yielded nothing in listReleases, also check /releases/latest as safety fallback
+            // Evaluate eligible releases and multi-version upgrade chain
             val evaluated = evaluateReleases(
                 repoSlug = normalizedSlug,
                 releases = rawReleases,
@@ -84,6 +89,15 @@ class GitHubUpdateRepository(
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    private fun githubApiRequest(url: String): Request {
+        return Request.Builder()
+            .url(url)
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .header("User-Agent", "CleanSMS-Android-Updater")
+            .build()
     }
 
     private fun fetchSha256FromUrl(url: String): String? {
@@ -236,16 +250,53 @@ class GitHubUpdateRepository(
                 .build()
         }
 
-        private fun createApi(client: OkHttpClient): GitHubUpdateApi {
-            val moshi = Moshi.Builder()
-                .addLast(KotlinJsonAdapterFactory())
-                .build()
-            return Retrofit.Builder()
-                .baseUrl("https://api.github.com/")
-                .client(client)
-                .addConverterFactory(MoshiConverterFactory.create(moshi))
-                .build()
-                .create(GitHubUpdateApi::class.java)
+        private fun optNullableString(obj: JSONObject, key: String): String? {
+            if (!obj.has(key) || obj.isNull(key)) return null
+            return obj.optString(key)
+        }
+
+        private fun parseReleasesArray(jsonPayload: String): List<GitHubReleaseDto> {
+            val trimmed = jsonPayload.trim()
+            if (trimmed.isEmpty()) return emptyList()
+            val array = JSONArray(trimmed)
+            val list = ArrayList<GitHubReleaseDto>(array.length())
+            for (i in 0 until array.length()) {
+                val obj = array.optJSONObject(i) ?: continue
+                list.add(parseReleaseObject(obj))
+            }
+            return list
+        }
+
+        private fun parseReleaseObject(obj: JSONObject): GitHubReleaseDto {
+            val assetsArray = obj.optJSONArray("assets")
+            val assets = if (assetsArray != null) {
+                ArrayList<GitHubAssetDto>(assetsArray.length()).apply {
+                    for (j in 0 until assetsArray.length()) {
+                        val aObj = assetsArray.optJSONObject(j) ?: continue
+                        add(
+                            GitHubAssetDto(
+                                name = optNullableString(aObj, "name").orEmpty(),
+                                browserDownloadUrl = optNullableString(aObj, "browser_download_url").orEmpty(),
+                                size = aObj.optLong("size", 0L),
+                                contentType = optNullableString(aObj, "content_type").orEmpty(),
+                                digest = optNullableString(aObj, "digest")
+                            )
+                        )
+                    }
+                }
+            } else {
+                emptyList()
+            }
+            return GitHubReleaseDto(
+                tagName = optNullableString(obj, "tag_name").orEmpty(),
+                name = optNullableString(obj, "name"),
+                body = optNullableString(obj, "body"),
+                htmlUrl = optNullableString(obj, "html_url").orEmpty(),
+                prerelease = obj.optBoolean("prerelease", false),
+                draft = obj.optBoolean("draft", false),
+                publishedAt = optNullableString(obj, "published_at"),
+                assets = assets
+            )
         }
 
         /**

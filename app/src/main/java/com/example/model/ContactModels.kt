@@ -32,10 +32,27 @@ data class ContactInfo(
 }
 
 object PhoneNormalizer {
-    private val NON_DIGIT_REGEX = Regex("[^0-9]")
 
     fun digitsOnly(raw: String): String {
-        return NON_DIGIT_REGEX.replace(raw, "")
+        val len = raw.length
+        if (len == 0) return ""
+        var allDigits = true
+        for (i in 0 until len) {
+            val ch = raw[i]
+            if (ch < '0' || ch > '9') {
+                allDigits = false
+                break
+            }
+        }
+        if (allDigits) return raw
+        val sb = StringBuilder(len)
+        for (i in 0 until len) {
+            val ch = raw[i]
+            if (ch in '0'..'9') {
+                sb.append(ch)
+            }
+        }
+        return sb.toString()
     }
 
     fun extractMatchKeys(raw: String): Set<String> {
@@ -43,7 +60,7 @@ object PhoneNormalizer {
         if (trimmed.isEmpty()) return emptySet()
         val lower = trimmed.lowercase()
         val digits = digitsOnly(trimmed)
-        return buildSet {
+        return buildSet(4) {
             add(lower)
             if (digits.isNotEmpty()) {
                 add(digits)
@@ -98,9 +115,10 @@ object ContactThreadHelper {
 
     fun collectTokensForContacts(contacts: List<ContactInfo>): Set<String> {
         if (contacts.isEmpty()) return emptySet()
-        val tokens = HashSet<String>()
+        val tokens = HashSet<String>(contacts.size * 4)
         for (c in contacts) {
-            tokens.add(c.id.trim().lowercase())
+            val idLower = c.id.trim().lowercase()
+            if (idLower.isNotEmpty()) tokens.add(idLower)
             val nameLower = c.displayName.trim().lowercase()
             if (nameLower.isNotEmpty()) tokens.add(nameLower)
             for (phone in c.phoneNumbers) {
@@ -140,14 +158,14 @@ object ContactThreadHelper {
             )
         }
 
-        val contactIds = selectedContacts.mapTo(HashSet()) { it.id }
+        val contactIds = selectedContacts.mapTo(HashSet(selectedContacts.size)) { it.id }
         val tokens = collectTokensForContacts(selectedContacts)
         val threadIds = HashSet<Long>()
         for (contact in selectedContacts) {
             contact.threadId?.takeIf { it > 0L }?.let { threadIds.add(it) }
         }
         for (msg in messages) {
-            if (msg.threadId > 0L && messageMatchesTokens(msg, tokens)) {
+            if (msg.threadId > 0L && msg.threadId !in threadIds && messageMatchesTokens(msg, tokens)) {
                 threadIds.add(msg.threadId)
             }
         }
@@ -162,30 +180,86 @@ object ContactThreadHelper {
     }
 
     /**
-     * Builds checklist entries with live message/thread counts for a contact list & message pool.
+     * Builds checklist entries with live message/thread counts in O(C + M) via inverted token maps.
      */
     fun buildEntriesForInbox(
         contacts: List<ContactInfo>,
         messages: List<SmsMessageItem>
     ): List<ContactThreadEntry> {
         if (contacts.isEmpty()) return emptyList()
-        return contacts.map { contact ->
-            val tokens = collectTokensForContacts(listOf(contact))
-            var count = 0
-            val threads = HashSet<Long>()
-            contact.threadId?.takeIf { it > 0L }?.let { threads.add(it) }
-            for (msg in messages) {
-                if (messageMatchesTokens(msg, tokens) || (contact.threadId != null && msg.threadId == contact.threadId)) {
-                    count++
-                    if (msg.threadId > 0L) threads.add(msg.threadId)
+
+        val contactCount = contacts.size
+        val tokenToContacts = HashMap<String, MutableList<Int>>(contactCount * 4)
+        val threadToContacts = HashMap<Long, MutableList<Int>>()
+        val counts = IntArray(contactCount)
+        val threadSets = Array<HashSet<Long>>(contactCount) { idx ->
+            HashSet<Long>(2).also { set ->
+                contacts[idx].threadId?.takeIf { it > 0L }?.let { set.add(it) }
+            }
+        }
+
+        for (i in 0 until contactCount) {
+            val contact = contacts[i]
+            val idLower = contact.id.trim().lowercase()
+            if (idLower.isNotEmpty()) {
+                tokenToContacts.getOrPut(idLower) { ArrayList(1) }.add(i)
+            }
+            val nameLower = contact.displayName.trim().lowercase()
+            if (nameLower.isNotEmpty()) {
+                tokenToContacts.getOrPut(nameLower) { ArrayList(1) }.add(i)
+            }
+            for (phone in contact.phoneNumbers) {
+                for (key in PhoneNormalizer.extractMatchKeys(phone)) {
+                    tokenToContacts.getOrPut(key) { ArrayList(1) }.add(i)
                 }
             }
-            ContactThreadEntry(
-                contact = contact,
-                messageCount = count,
-                threadIds = threads
+            contact.threadId?.let { tid ->
+                threadToContacts.getOrPut(tid) { ArrayList(1) }.add(i)
+            }
+        }
+
+        val seenStamp = IntArray(contactCount)
+        var currentStamp = 0
+
+        for (msg in messages) {
+            currentStamp++
+            fun recordMatches(list: List<Int>?) {
+                if (list == null) return
+                for (k in 0 until list.size) {
+                    val idx = list[k]
+                    if (seenStamp[idx] != currentStamp) {
+                        seenStamp[idx] = currentStamp
+                        counts[idx]++
+                        if (msg.threadId > 0L) {
+                            threadSets[idx].add(msg.threadId)
+                        }
+                    }
+                }
+            }
+
+            msg.contactId?.trim()?.lowercase()?.let { recordMatches(tokenToContacts[it]) }
+            msg.contactName?.trim()?.lowercase()?.let { recordMatches(tokenToContacts[it]) }
+            val addrLower = msg.address.trim().lowercase()
+            recordMatches(tokenToContacts[addrLower])
+            val pKey = PhoneNormalizer.primaryKey(msg.address)
+            if (pKey != addrLower) {
+                recordMatches(tokenToContacts[pKey])
+            }
+            recordMatches(threadToContacts[msg.threadId])
+        }
+
+        val entries = ArrayList<ContactThreadEntry>(contactCount)
+        for (i in 0 until contactCount) {
+            entries.add(
+                ContactThreadEntry(
+                    contact = contacts[i],
+                    messageCount = counts[i],
+                    threadIds = threadSets[i]
+                )
             )
-        }.sortedWith(
+        }
+
+        return entries.sortedWith(
             compareByDescending<ContactThreadEntry> { it.messageCount > 0 }
                 .thenByDescending { it.messageCount }
                 .thenBy { it.contact.displayName.lowercase() }
@@ -194,13 +268,31 @@ object ContactThreadHelper {
 
     /**
      * Extracts contact groups specifically present inside Vault (Quarantine + Deleted Test snapshots)
-     * so users can filter and review quarantined/deleted messages by contact group.
+     * in O(M + C) so users can filter and review quarantined/deleted messages by contact group.
      */
     fun buildVaultContactEntries(
         vaultMessages: List<SmsMessageItem>,
         availableContacts: List<ContactInfo>
     ): List<ContactThreadEntry> {
         if (vaultMessages.isEmpty()) return emptyList()
+
+        val tokenToContact = if (availableContacts.isNotEmpty()) {
+            HashMap<String, ContactInfo>(availableContacts.size * 4).apply {
+                for (contact in availableContacts) {
+                    val idLower = contact.id.trim().lowercase()
+                    if (idLower.isNotEmpty()) putIfAbsent(idLower, contact)
+                    val nameLower = contact.displayName.trim().lowercase()
+                    if (nameLower.isNotEmpty()) putIfAbsent(nameLower, contact)
+                    for (phone in contact.phoneNumbers) {
+                        for (key in PhoneNormalizer.extractMatchKeys(phone)) {
+                            putIfAbsent(key, contact)
+                        }
+                    }
+                }
+            }
+        } else {
+            emptyMap()
+        }
 
         val grouped = LinkedHashMap<String, MutableList<SmsMessageItem>>()
         for (msg in vaultMessages) {
@@ -210,9 +302,13 @@ object ContactThreadHelper {
 
         return grouped.map { (key, msgs) ->
             val sample = msgs.first()
-            val matchedAvailable = availableContacts.firstOrNull { contact ->
-                val tokens = collectTokensForContacts(listOf(contact))
-                messageMatchesTokens(sample, tokens)
+            val matchedAvailable = if (tokenToContact.isEmpty()) {
+                null
+            } else {
+                sample.contactId?.trim()?.lowercase()?.let { tokenToContact[it] }
+                    ?: sample.contactName?.trim()?.lowercase()?.let { tokenToContact[it] }
+                    ?: tokenToContact[sample.address.trim().lowercase()]
+                    ?: tokenToContact[PhoneNormalizer.primaryKey(sample.address)]
             }
             val contact = matchedAvailable ?: ContactInfo(
                 id = "vault_$key",
@@ -221,7 +317,7 @@ object ContactThreadHelper {
                 isFromDeviceContacts = !sample.contactName.isNullOrBlank(),
                 threadId = sample.threadId.takeIf { it > 0L }
             )
-            val threads = msgs.mapNotNull { it.threadId.takeIf { tid -> tid > 0L } }.toSet()
+            val threads = msgs.mapNotNullTo(HashSet()) { it.threadId.takeIf { tid -> tid > 0L } }
             ContactThreadEntry(
                 contact = contact,
                 messageCount = msgs.size,

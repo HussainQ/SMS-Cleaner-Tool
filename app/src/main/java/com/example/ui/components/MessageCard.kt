@@ -3,8 +3,6 @@ package com.example.ui.components
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -111,7 +109,7 @@ fun MessageCard(
                                     horizontalArrangement = Arrangement.spacedBy(3.dp)
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.ChatBubbleOutline,
+                                        imageVector = AppIcons.ChatBubbleOutline,
                                         contentDescription = "RCS",
                                         tint = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(10.dp)

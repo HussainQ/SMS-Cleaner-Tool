@@ -174,7 +174,7 @@ class UpdateAndMigrationTest {
     }
 
     @Test
-    fun gitHubUpdateRepository_pullsReleasesAndSha256AssetOverRetrofitAndMoshi() = runBlocking {
+    fun gitHubUpdateRepository_pullsReleasesAndSha256AssetOverOkHttpAndOrgJson() = runBlocking {
         val expectedSha = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
         val releasesJson = """
             [
@@ -778,5 +778,33 @@ class UpdateAndMigrationTest {
         assertFalse(manager.isUseDeviceMaterialTheme())
         manager.setUseDeviceMaterialTheme(true)
         assertTrue(manager.isUseDeviceMaterialTheme())
+    }
+
+    @Test
+    fun appUpgradeManager_upgradeTo173Pre1_recordsMilestoneAndVersionCode10703() {
+        val prefs = context.getSharedPreferences(AppUpgradeManager.PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit()
+            .clear()
+            .putInt("last_migrated_version_code", 10702)
+            .putString("last_migrated_version_name", "1.7.2-pre.1")
+            .commit()
+
+        val manager = AppUpgradeManager(context)
+        val report = manager.ensureStateMigrated(
+            targetVersionCode = 10703,
+            targetVersionName = "1.7.3-pre.1"
+        )
+
+        assertFalse(report.wasMultiVersionJump)
+        assertEquals(6, report.databaseSchemaVersion)
+        assertEquals("1.7.2-pre.1", report.previousVersionName)
+        assertEquals(10702, report.previousVersionCode)
+        assertEquals(
+            listOf("v1.7.3: Lightweight refactor (local vector icons, R8 shrinking & OkHttp updater), faster scanner/Room pipelines & indeterminate scan progress bar"),
+            report.appliedMilestones
+        )
+
+        assertTrue(SemanticVersion.parse("v1.7.3-pre.1")!! > SemanticVersion.parse("v1.7.2-pre.1")!!)
+        assertEquals(10703, SemanticVersion.parse("v1.7.3-pre.1")!!.toVersionCode())
     }
 }

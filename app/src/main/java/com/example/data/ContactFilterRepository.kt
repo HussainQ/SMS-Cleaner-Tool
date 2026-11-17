@@ -84,8 +84,8 @@ class ContactFilterRepository(
     fun observeScannerContactEntriesFlow(): Flow<List<ContactThreadEntry>> {
         val dbSummariesFlow = scannerSearchQueryFlow
             .map { it.trim() }
-            .debounce(80L)
             .distinctUntilChanged()
+            .debounce { query -> if (query.isEmpty()) 0L else 60L }
             .flatMapLatest { query ->
                 dao.observeInboxContactSummariesFlow(query)
             }
@@ -153,8 +153,8 @@ class ContactFilterRepository(
     fun observeVaultContactEntriesFlow(): Flow<List<ContactThreadEntry>> {
         val dbVaultSummariesFlow = vaultSearchQueryFlow
             .map { it.trim() }
-            .debounce(80L)
             .distinctUntilChanged()
+            .debounce { query -> if (query.isEmpty()) 0L else 60L }
             .flatMapLatest { query ->
                 dao.observeVaultContactSummariesFlow(query)
             }
@@ -295,10 +295,18 @@ class ContactFilterRepository(
 
     private fun parseThreadIdsCsv(csv: String?): Set<Long> {
         if (csv.isNullOrBlank()) return emptySet()
-        val set = HashSet<Long>()
-        for (part in csv.split(",")) {
-            val tid = part.trim().toLongOrNull()
-            if (tid != null && tid > 0L) set.add(tid)
+        val set = HashSet<Long>(4)
+        var start = 0
+        val len = csv.length
+        while (start <= len) {
+            val comma = csv.indexOf(',', start)
+            val end = if (comma == -1) len else comma
+            if (end > start) {
+                val tid = csv.substring(start, end).trim().toLongOrNull()
+                if (tid != null && tid > 0L) set.add(tid)
+            }
+            if (comma == -1) break
+            start = comma + 1
         }
         return set
     }
@@ -308,32 +316,46 @@ class ContactFilterRepository(
         deviceContacts: List<ContactInfo>,
         searchQuery: String
     ): List<ContactThreadEntry> {
-        val deviceById = deviceContacts.associateBy { it.id.trim().lowercase() }
-        val deviceByNameOrPhone = HashMap<String, ContactInfo>()
-        for (dc in deviceContacts) {
-            dc.displayName.trim().lowercase().takeIf { it.isNotEmpty() }?.let {
-                deviceByNameOrPhone.putIfAbsent(it, dc)
-            }
-            for (phone in dc.phoneNumbers) {
-                for (key in PhoneNormalizer.extractMatchKeys(phone)) {
-                    deviceByNameOrPhone.putIfAbsent(key, dc)
+        val hasDeviceContacts = deviceContacts.isNotEmpty()
+        val deviceById = if (hasDeviceContacts) {
+            deviceContacts.associateBy { it.id.trim().lowercase() }
+        } else {
+            emptyMap()
+        }
+        val deviceByNameOrPhone = if (hasDeviceContacts) {
+            HashMap<String, ContactInfo>(deviceContacts.size * 3).apply {
+                for (dc in deviceContacts) {
+                    dc.displayName.trim().lowercase().takeIf { it.isNotEmpty() }?.let {
+                        putIfAbsent(it, dc)
+                    }
+                    for (phone in dc.phoneNumbers) {
+                        for (key in PhoneNormalizer.extractMatchKeys(phone)) {
+                            putIfAbsent(key, dc)
+                        }
+                    }
                 }
             }
+        } else {
+            emptyMap()
         }
 
         val entries = ArrayList<ContactThreadEntry>(rows.size + deviceContacts.size)
-        val coveredDeviceIds = HashSet<String>()
+        val coveredDeviceIds = if (hasDeviceContacts) HashSet<String>(deviceContacts.size) else null
 
         for (row in rows) {
-            val cidLower = row.contactId?.trim()?.lowercase().orEmpty()
-            val primaryKey = PhoneNormalizer.primaryKey(row.primaryAddress)
-            val matchedDevice = deviceById[cidLower]
-                ?: deviceByNameOrPhone[primaryKey]
-                ?: deviceByNameOrPhone[row.displayName.trim().lowercase()]
+            val matchedDevice = if (hasDeviceContacts) {
+                val cidLower = row.contactId?.trim()?.lowercase().orEmpty()
+                val primaryKey = PhoneNormalizer.primaryKey(row.primaryAddress)
+                deviceById[cidLower]
+                    ?: deviceByNameOrPhone[primaryKey]
+                    ?: deviceByNameOrPhone[row.displayName.trim().lowercase()]
+            } else {
+                null
+            }
 
             val threadIds = parseThreadIdsCsv(row.threadIdsCsv)
             val contact = if (matchedDevice != null) {
-                coveredDeviceIds.add(matchedDevice.id)
+                coveredDeviceIds?.add(matchedDevice.id)
                 if (matchedDevice.threadId != null) {
                     matchedDevice
                 } else {
@@ -360,21 +382,23 @@ class ContactFilterRepository(
             )
         }
 
-        val qLower = searchQuery.lowercase()
-        for (dc in deviceContacts) {
-            if (dc.id in coveredDeviceIds) continue
-            if (qLower.isNotEmpty()) {
-                val matchesSearch = dc.displayName.lowercase().contains(qLower) ||
-                    dc.phoneNumbers.any { it.lowercase().contains(qLower) }
-                if (!matchesSearch) continue
-            }
-            entries.add(
-                ContactThreadEntry(
-                    contact = dc,
-                    messageCount = 0,
-                    threadIds = dc.threadId?.takeIf { it > 0L }?.let { setOf(it) } ?: emptySet()
+        if (hasDeviceContacts) {
+            val q = searchQuery
+            for (dc in deviceContacts) {
+                if (coveredDeviceIds?.contains(dc.id) == true) continue
+                if (q.isNotEmpty()) {
+                    val matchesSearch = dc.displayName.contains(q, ignoreCase = true) ||
+                        dc.phoneNumbers.any { it.contains(q, ignoreCase = true) }
+                    if (!matchesSearch) continue
+                }
+                entries.add(
+                    ContactThreadEntry(
+                        contact = dc,
+                        messageCount = 0,
+                        threadIds = dc.threadId?.takeIf { it > 0L }?.let { setOf(it) } ?: emptySet()
+                    )
                 )
-            )
+            }
         }
 
         return entries.sortedWith(

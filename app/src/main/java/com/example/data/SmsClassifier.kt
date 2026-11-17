@@ -35,8 +35,6 @@ object SmsClassifier {
 
     private val OTP_REGEX = Pattern.compile("(?i)(?:otp|code|pin|password|verification|auth|secret)[^0-9]{0,10}([0-9]{4,8})")
     private val STANDALONE_DIGITS = Pattern.compile("\\b([0-9]{4,8})\\b")
-    private val ALPHANUMERIC_SENDER_REGEX = Regex("^[A-Za-z0-9_-]+$")
-    private val PHONE_DIGITS_REGEX = Regex("^\\+?[0-9]+$")
 
     private val PROMO_KEYWORDS = listOf(
         "discount", "offer", "sale", "coupon", "flat 50%", "cashback", "promo code",
@@ -64,12 +62,12 @@ object SmsClassifier {
     )
 
     /**
-     * Fast single-pass whitespace normalizer (avoids compiling/evaluating Regex per message).
+     * Fast single-pass whitespace normalizer appending directly into [sb] without temporary Regex.
      */
-    private fun normalizeWhitespaceLower(input: String): String {
+    private fun appendNormalizedWhitespaceLower(input: String, sb: StringBuilder) {
+        val startIdx = sb.length
         val len = input.length
-        if (len == 0) return ""
-        val sb = StringBuilder(len)
+        if (len == 0) return
         var lastWasSpace = true
         for (i in 0 until len) {
             val ch = input[i]
@@ -84,10 +82,19 @@ object SmsClassifier {
             }
         }
         val outLen = sb.length
-        if (outLen > 0 && sb[outLen - 1] == ' ') {
+        if (outLen > startIdx && sb[outLen - 1] == ' ') {
             sb.setLength(outLen - 1)
         }
-        return sb.toString()
+    }
+
+    private fun appendTrimmedLower(input: String, sb: StringBuilder) {
+        var start = 0
+        var end = input.length
+        while (start < end && input[start] <= ' ') start++
+        while (end > start && input[end - 1] <= ' ') end--
+        for (i in start until end) {
+            sb.append(input[i].lowercaseChar())
+        }
     }
 
     private fun compileRules(activeRules: List<CustomFilterRule>): List<CompiledRule> {
@@ -197,14 +204,19 @@ object SmsClassifier {
             emptySet()
         }
 
-        // Step 1: Group duplicates in O(N) using normalized whitespace without Regex allocation
+        // Step 1: Group duplicates in O(N) using normalized whitespace with reusable StringBuilder
         val normalizedGroups = HashMap<String, MutableList<SmsMessageItem>>(rawMessages.size)
+        val keyBuilder = StringBuilder(160)
 
         for (msg in rawMessages) {
-            val threadPrefix = if (msg.threadId > 0) "thread_${msg.threadId}:::" else ""
-            val addrNorm = msg.address.trim().lowercase()
-            val bodyNorm = normalizeWhitespaceLower(msg.body)
-            val key = "$threadPrefix$addrNorm:::$bodyNorm"
+            keyBuilder.setLength(0)
+            if (msg.threadId > 0L) {
+                keyBuilder.append("thread_").append(msg.threadId).append(":::")
+            }
+            appendTrimmedLower(msg.address, keyBuilder)
+            keyBuilder.append(":::")
+            appendNormalizedWhitespaceLower(msg.body, keyBuilder)
+            val key = keyBuilder.toString()
             normalizedGroups.getOrPut(key) { ArrayList(2) }.add(msg)
         }
 
@@ -232,8 +244,8 @@ object SmsClassifier {
             sorted.forEachIndexed { index, msg ->
                 val isDuplicate = totalInGroup > 1 && index > 0
                 val matchesGlobalContact = hasGlobalContactFilter && (
-                    matchesContactTokens(msg, selectedContactTokens) ||
-                        (msg.threadId > 0L && msg.threadId in matchedContactThreadIds)
+                    (msg.threadId > 0L && msg.threadId in matchedContactThreadIds) ||
+                        matchesContactTokens(msg, selectedContactTokens)
                     )
 
                 // If global Per-Contact Filter is in PROTECT (VIP) mode, keep matched contact safe
@@ -280,8 +292,12 @@ object SmsClassifier {
                     }
                 } else if (allowRulesForMessage) {
                     val bodyLower = msg.body.lowercase()
-                    val matchedRule = compiledRules.firstOrNull { compiled ->
-                        matchesCompiledRule(msg, bodyLower, compiled, now)
+                    val matchedRule = if (compiledRules.isNotEmpty()) {
+                        compiledRules.firstOrNull { compiled ->
+                            matchesCompiledRule(msg, bodyLower, compiled, now)
+                        }
+                    } else {
+                        null
                     }
 
                     val isExplicitNotSpamOverride = msg.folderSource == MessagingHelper.FOLDER_SOURCE_USER_OVERRIDE && !msg.isSpamMarked
@@ -297,20 +313,25 @@ object SmsClassifier {
                         } else {
                             "Spam / Phishing: Contains urgent threat or suspicious link"
                         }
-                    } else if (filterOtps && isOtpMessageLower(msg.body, bodyLower)) {
-                        val code = extractOtpCode(msg.body)
-                        otpCode = code
-                        val ageMillis = now - msg.date
-                        isExpiredOtp = ageMillis > (15 * 60 * 1000L)
+                    } else if (filterOtps) {
+                        val extractedOtp = extractOtpIfOtpMessage(msg.body, bodyLower)
+                        if (extractedOtp != null) {
+                            otpCode = extractedOtp
+                            val ageMillis = now - msg.date
+                            isExpiredOtp = ageMillis > (15 * 60 * 1000L)
 
-                        if (!onlyExpiredOtps || isExpiredOtp) {
-                            category = SmsCategory.OTP
-                            val ageStr = formatAge(ageMillis)
-                            matchReason = if (isExpiredOtp) {
-                                "Expired OTP ($code): Received $ageStr ago"
-                            } else {
-                                "Active 2FA code ($code)"
+                            if (!onlyExpiredOtps || isExpiredOtp) {
+                                category = SmsCategory.OTP
+                                val ageStr = formatAge(ageMillis)
+                                matchReason = if (isExpiredOtpsAge(isExpiredOtp, extractedOtp, ageStr)) {
+                                    "Expired OTP ($extractedOtp): Received $ageStr ago"
+                                } else {
+                                    "Active 2FA code ($extractedOtp)"
+                                }
                             }
+                        } else if (filterPromotions && isPromotionalMessageLower(msg.address, bodyLower)) {
+                            category = SmsCategory.PROMOTION
+                            matchReason = "Promotional offer / Commercial marketing campaign"
                         }
                     } else if (filterPromotions && isPromotionalMessageLower(msg.address, bodyLower)) {
                         category = SmsCategory.PROMOTION
@@ -489,7 +510,9 @@ object SmsClassifier {
         return true
     }
 
-    private fun isOtpMessageLower(body: String, lower: String): Boolean {
+    private fun isExpiredOtpsAge(isExpiredOtp: Boolean, code: String, ageStr: String): Boolean = isExpiredOtp
+
+    private fun extractOtpIfOtpMessage(body: String, lower: String): String? {
         val hasOtpKeyword = lower.contains("otp") ||
                 lower.contains("pin") ||
                 lower.contains("verification code") ||
@@ -501,10 +524,8 @@ object SmsClassifier {
                 lower.contains("secret code") ||
                 (lower.contains("code") && lower.contains("do not share"))
 
-        return hasOtpKeyword && (OTP_REGEX.matcher(body).find() || STANDALONE_DIGITS.matcher(body).find())
-    }
+        if (!hasOtpKeyword) return null
 
-    private fun extractOtpCode(body: String): String {
         val m = OTP_REGEX.matcher(body)
         if (m.find()) {
             return m.group(1) ?: ""
@@ -513,13 +534,26 @@ object SmsClassifier {
         if (m2.find()) {
             return m2.group(1) ?: ""
         }
-        return ""
+        return null
+    }
+
+    private fun isAlphanumericSender(address: String): Boolean {
+        val len = address.length
+        if (len !in 5..9) return false
+        var hasNonDigit = false
+        for (i in 0 until len) {
+            val ch = address[i]
+            val valid = ch in 'A'..'Z' || ch in 'a'..'z' || ch in '0'..'9' || ch == '_' || ch == '-'
+            if (!valid) return false
+            if (ch < '0' || ch > '9') {
+                hasNonDigit = true
+            }
+        }
+        return hasNonDigit
     }
 
     private fun isPromotionalMessageLower(address: String, lower: String): Boolean {
-        val isAlphanumericSender = address.length in 5..9 &&
-                ALPHANUMERIC_SENDER_REGEX.matches(address) &&
-                !PHONE_DIGITS_REGEX.matches(address)
+        val isAlphanumericSender = isAlphanumericSender(address)
 
         val hasPromoWord = PROMO_KEYWORDS.any { lower.contains(it) }
         val hasDealLink = lower.contains("http") || lower.contains(".com/") || lower.contains(".in/") || lower.contains(".co/")

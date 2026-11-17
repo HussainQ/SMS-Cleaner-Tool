@@ -13,7 +13,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -157,7 +159,7 @@ fun PreviewCleanScreen(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Icon(
-                                    Icons.Default.Verified,
+                                    AppIcons.Verified,
                                     contentDescription = "Default SMS App",
                                     tint = TealAccent,
                                     modifier = Modifier.size(16.dp)
@@ -202,7 +204,7 @@ fun PreviewCleanScreen(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Icon(
-                                    Icons.Default.AdminPanelSettings,
+                                    AppIcons.AdminPanelSettings,
                                     contentDescription = null,
                                     tint = AmberAccent,
                                     modifier = Modifier.size(16.dp)
@@ -393,7 +395,7 @@ fun PreviewCleanScreen(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     Icon(
-                                        Icons.Default.Forum,
+                                        AppIcons.Forum,
                                         contentDescription = null,
                                         tint = AmberAccent,
                                         modifier = Modifier.size(18.dp)
@@ -522,7 +524,7 @@ fun PreviewCleanScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Icon(
-                        imageVector = if (searchInput.isNotBlank()) Icons.Default.SearchOff else Icons.Default.CheckCircle,
+                        imageVector = if (searchInput.isNotBlank()) AppIcons.SearchOff else Icons.Default.CheckCircle,
                         contentDescription = null,
                         tint = if (searchInput.isNotBlank()) AmberAccent else TealAccent,
                         modifier = Modifier.size(54.dp)
@@ -622,7 +624,7 @@ fun PreviewCleanScreen(
                         .testTag("quarantine_action_button")
                 ) {
                     Icon(
-                        Icons.Default.Shield,
+                        AppIcons.Shield,
                         contentDescription = null,
                         modifier = Modifier.size(18.dp)
                     )
@@ -651,7 +653,7 @@ fun PreviewCleanScreen(
                         .testTag("permanent_delete_action_button")
                 ) {
                     Icon(
-                        Icons.Default.DeleteForever,
+                        AppIcons.DeleteForever,
                         contentDescription = null,
                         tint = RedDestructive,
                         modifier = Modifier.size(18.dp)

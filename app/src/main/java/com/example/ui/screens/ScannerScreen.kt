@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -14,8 +15,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.automirrored.filled.Undo
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -209,7 +213,7 @@ private fun DataSourceCard(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = if (uiState.isDemoMode) Icons.Default.Science else Icons.Default.Smartphone,
+                        imageVector = if (uiState.isDemoMode) AppIcons.Science else AppIcons.Smartphone,
                         contentDescription = null,
                         tint = if (uiState.isDemoMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
                         modifier = Modifier.size(20.dp)
@@ -328,6 +332,26 @@ private fun ClutterAnalysisCard(
                     }
                 }
 
+                AnimatedVisibility(visible = isScanning) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        LinearProgressIndicator(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(4.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .testTag("scanner_indeterminate_progress"),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.16f)
+                        )
+                        Text(
+                            text = "Reading messages & evaluating rules...",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f)
+                        )
+                    }
+                }
+
                 Text(
                     text = "Out of $allMessagesCount total messages in your inbox, we found redundant copies, expired verification codes, ads, and spam.",
                     fontSize = 13.sp,
@@ -344,28 +368,28 @@ private fun ClutterAnalysisCard(
                         count = duplicateCount,
                         label = "Duplicates",
                         color = AmberAccent,
-                        icon = Icons.Default.ContentCopy,
+                        icon = AppIcons.ContentCopy,
                         modifier = Modifier.weight(1f)
                     )
                     StatBadge(
                         count = otpCount,
                         label = "OTPs",
                         color = PurpleAccent,
-                        icon = Icons.Default.Password,
+                        icon = AppIcons.Password,
                         modifier = Modifier.weight(1f)
                     )
                     StatBadge(
                         count = promoCount,
                         label = "Promos",
                         color = RoseAccent,
-                        icon = Icons.Default.LocalOffer,
+                        icon = AppIcons.LocalOffer,
                         modifier = Modifier.weight(1f)
                     )
                     StatBadge(
                         count = spamCount,
                         label = "Spam",
                         color = RedDestructive,
-                        icon = Icons.Default.Report,
+                        icon = AppIcons.Report,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -441,7 +465,7 @@ fun TelephonyBanner(
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
-                                imageVector = if (activeDefault) Icons.Default.Verified else Icons.Default.Info,
+                                imageVector = if (activeDefault) AppIcons.Verified else Icons.Default.Info,
                                 contentDescription = null,
                                 tint = if (activeDefault) TealAccent else AmberAccent,
                                 modifier = Modifier.size(20.dp)
@@ -482,7 +506,7 @@ fun TelephonyBanner(
                             .height(48.dp)
                             .testTag("set_default_sms_button")
                     ) {
-                        Icon(Icons.Default.AdminPanelSettings, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                        Icon(AppIcons.AdminPanelSettings, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = "Set as Default SMS App",
@@ -548,7 +572,7 @@ fun TelephonyBanner(
                             .testTag("hand_back_default_sms_button")
                     ) {
                         Icon(
-                            Icons.AutoMirrored.Filled.Undo,
+                            AppIcons.Undo,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.secondary,
                             modifier = Modifier.size(18.dp)
@@ -593,7 +617,7 @@ private fun DetectionRulesCard(
             FilterToggleRow(
                 title = "De-duplicate Text Messages",
                 subtitle = "Identifies identical SMS; keeps original copy and flags redundant duplicates",
-                icon = Icons.Default.ContentCopy,
+                icon = AppIcons.ContentCopy,
                 iconColor = AmberAccent,
                 checked = uiState.filterDuplicates,
                 onCheckedChange = { viewModel.toggleDuplicateFilter(it) }
@@ -604,7 +628,7 @@ private fun DetectionRulesCard(
             FilterToggleRow(
                 title = "OTPs & 2FA Codes",
                 subtitle = "Finds one-time security passwords and codes",
-                icon = Icons.Default.Password,
+                icon = AppIcons.Password,
                 iconColor = PurpleAccent,
                 checked = uiState.filterOtps,
                 onCheckedChange = { viewModel.toggleOtpFilter(it) }
@@ -635,7 +659,7 @@ private fun DetectionRulesCard(
             FilterToggleRow(
                 title = "Promotions & Offers",
                 subtitle = "Flags commercial marketing and discount coupons",
-                icon = Icons.Default.LocalOffer,
+                icon = AppIcons.LocalOffer,
                 iconColor = RoseAccent,
                 checked = uiState.filterPromotions,
                 onCheckedChange = { viewModel.togglePromotionFilter(it) }
@@ -646,7 +670,7 @@ private fun DetectionRulesCard(
             FilterToggleRow(
                 title = "Spam & Phishing Warnings",
                 subtitle = "Detects urgent account suspension alerts and suspicious links",
-                icon = Icons.Default.Report,
+                icon = AppIcons.Report,
                 iconColor = RedDestructive,
                 checked = uiState.filterSpam,
                 onCheckedChange = { viewModel.toggleSpamFilter(it) }
@@ -701,7 +725,7 @@ private fun DetectionRulesCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Icon(Icons.Default.Tune, contentDescription = null, tint = TealAccent)
+                    Icon(AppIcons.Tune, contentDescription = null, tint = TealAccent)
                     Column {
                         Text("Custom Cleaning Rules", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                         Text("${uiState.customRules.count { it.isEnabled }} active rules configured", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -721,7 +745,7 @@ private fun DetectionRulesCard(
             FilterToggleRow(
                 title = "Recently Deleted Folder Recovery",
                 subtitle = "Keep deleted SMS for 30 days for batch inbox restoration (${uiState.deletedTestMessages.size} saved)",
-                icon = Icons.Default.RestoreFromTrash,
+                icon = AppIcons.RestoreFromTrash,
                 iconColor = AmberAccent,
                 checked = uiState.testingRestoreDeletedEnabled,
                 onCheckedChange = { viewModel.toggleTestingRestoreDeleted(it) },
@@ -846,7 +870,7 @@ fun SmsPermissionsBanner(
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
-                            imageVector = if (allGranted) Icons.Default.VerifiedUser else Icons.Default.Security,
+                            imageVector = if (allGranted) AppIcons.VerifiedUser else AppIcons.Security,
                             contentDescription = null,
                             tint = if (allGranted) TealAccent else AmberAccent,
                             modifier = Modifier.size(20.dp)
@@ -913,7 +937,7 @@ fun SmsPermissionsBanner(
                                 .height(42.dp)
                                 .testTag("request_sms_permissions_banner_btn")
                         ) {
-                            Icon(Icons.Default.LockOpen, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Icon(AppIcons.LockOpen, contentDescription = null, modifier = Modifier.size(15.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("Grant SMS", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
                         }
@@ -928,7 +952,7 @@ fun SmsPermissionsBanner(
                                 .height(42.dp)
                                 .testTag("request_contacts_permission_banner_btn")
                         ) {
-                            Icon(Icons.Default.Contacts, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Icon(AppIcons.Contacts, contentDescription = null, modifier = Modifier.size(15.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("Grant Contacts", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
                         }

@@ -9,7 +9,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -181,14 +181,14 @@ fun VaultRestoreScreen(
                         },
                         leadingIcon = {
                             Icon(
-                                imageVector = Icons.Default.Contacts,
+                                imageVector = AppIcons.Contacts,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp)
                             )
                         },
                         trailingIcon = {
                             Icon(
-                                imageVector = if (showContactFilterPanel) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                imageVector = if (showContactFilterPanel) AppIcons.ExpandLess else AppIcons.ExpandMore,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp)
                             )
@@ -209,7 +209,7 @@ fun VaultRestoreScreen(
                         leadingIcon = if (uiState.vaultGroupByContact) {
                             { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
                         } else {
-                            { Icon(Icons.Default.Groups, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                            { Icon(AppIcons.Groups, contentDescription = null, modifier = Modifier.size(16.dp)) }
                         },
                         modifier = Modifier.testTag("vault_group_by_contact_chip")
                     )
@@ -272,7 +272,7 @@ fun VaultRestoreScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.RestoreFromTrash,
+                                imageVector = AppIcons.RestoreFromTrash,
                                 contentDescription = null,
                                 tint = if (uiState.testingRestoreDeletedEnabled) AmberAccent else MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(16.dp)
@@ -393,7 +393,7 @@ fun VaultRestoreScreen(
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                         Icon(
-                            imageVector = if (activeVaultFilter) Icons.Default.FilterListOff else Icons.Default.Shield,
+                            imageVector = if (activeVaultFilter) AppIcons.FilterListOff else AppIcons.Shield,
                             contentDescription = null,
                             tint = TealAccent,
                             modifier = Modifier.size(60.dp)
@@ -466,7 +466,7 @@ fun VaultRestoreScreen(
                                 .testTag("restore_selected_button")
                         ) {
                             Icon(
-                                Icons.Default.Restore,
+                                AppIcons.Restore,
                                 contentDescription = null,
                                 tint = Color.Black,
                                 modifier = Modifier.size(18.dp)
@@ -494,7 +494,7 @@ fun VaultRestoreScreen(
                                 .testTag("permanent_delete_vault_button")
                         ) {
                             Icon(
-                                Icons.Default.DeleteForever,
+                                AppIcons.DeleteForever,
                                 contentDescription = null,
                                 tint = RedDestructive,
                                 modifier = Modifier.size(18.dp)
@@ -525,7 +525,7 @@ fun VaultRestoreScreen(
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                         Icon(
-                            imageVector = if (activeVaultFilter) Icons.Default.FilterListOff else Icons.Default.RestoreFromTrash,
+                            imageVector = if (activeVaultFilter) AppIcons.FilterListOff else AppIcons.RestoreFromTrash,
                             contentDescription = null,
                             tint = AmberAccent,
                             modifier = Modifier.size(60.dp)
@@ -622,7 +622,7 @@ fun VaultRestoreScreen(
                                     .testTag("restore_deleted_test_button")
                             ) {
                                 Icon(
-                                    Icons.Default.RestoreFromTrash,
+                                    AppIcons.RestoreFromTrash,
                                     contentDescription = null,
                                     tint = Color.Black,
                                     modifier = Modifier.size(18.dp)
@@ -652,7 +652,7 @@ fun VaultRestoreScreen(
                                     .testTag("purge_selected_deleted_button")
                             ) {
                                 Icon(
-                                    Icons.Default.DeleteForever,
+                                    AppIcons.DeleteForever,
                                     contentDescription = null,
                                     tint = RedDestructive,
                                     modifier = Modifier.size(18.dp)
