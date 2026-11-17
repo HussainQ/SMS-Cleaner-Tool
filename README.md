@@ -8,11 +8,11 @@
 [![Min SDK](https://img.shields.io/badge/Min%20SDK-24%20(Android%207.0)-informational?style=flat-square)](https://developer.android.com/about/versions)
 [![Target SDK](https://img.shields.io/badge/Target%20SDK-36%20(Android%2016)-success?style=flat-square)](https://developer.android.com/about/versions)
 [![Privacy](https://img.shields.io/badge/Privacy-100%25%20On--Device-success?style=flat-square&logo=shield)](https://github.com/HussainQ/SMS-Cleaner-Tool)
-[![Alpha Release](https://img.shields.io/badge/Alpha-v1.0.0--alpha.1-orange?style=flat-square)](https://github.com/HussainQ/SMS-Cleaner-Tool/releases)
+[![Alpha Release](https://img.shields.io/badge/Alpha-v2.0.0--alpha.1-orange?style=flat-square)](https://github.com/HussainQ/SMS-Cleaner-Tool/releases)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue?style=flat-square)](LICENSE)
 
 > [!NOTE]
-> **Latest Pre-Release (`v1.0.0-alpha.1`)**: See [`RELEASE_NOTES.md`](RELEASE_NOTES.md) or visit [`HussainQ/SMS-Cleaner-Tool/releases`](https://github.com/HussainQ/SMS-Cleaner-Tool/releases) for downloadable APKs and SHA-256 checksums.
+> **Latest Pre-Release (`v2.0.0-alpha.1`)**: See [`RELEASE_NOTES.md`](RELEASE_NOTES.md) or visit [`HussainQ/SMS-Cleaner-Tool/releases`](https://github.com/HussainQ/SMS-Cleaner-Tool/releases) for downloadable APKs and SHA-256 checksums.
 
 ---
 
@@ -66,7 +66,7 @@ gradle :app:assembleDebug
 
 ## 📚 Additional Documentation
 
-- [Release Notes (`v1.0.0-alpha.1`)](RELEASE_NOTES.md)
+- [Release Notes (`v2.0.0-alpha.1`)](RELEASE_NOTES.md)
 - [Release Version Schema](docs/RELEASE_VERSION_SCHEMA.md)
 
 ---

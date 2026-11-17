@@ -12,8 +12,8 @@ CleanSMS follows **Semantic Versioning 2.0.0** (`MAJOR.MINOR.PATCH` with optiona
 vMAJOR.MINOR.PATCH[-prerelease.N]
 ```
 
-- **Stable releases:** `MAJOR.MINOR.PATCH` (for example `1.0.0`, GitHub tag `v1.0.0`).
-- **Pre-releases / Alphas / Betas:** `MAJOR.MINOR.PATCH-alpha.N`, `-beta.N`, `-pre.N`, or `-rc.N` (for example `1.0.0-alpha.1`, GitHub tag `v1.0.0-alpha.1`).
+- **Stable releases:** `MAJOR.MINOR.PATCH` (for example `2.0.0`, GitHub tag `v2.0.0`).
+- **Pre-releases / Alphas / Betas:** `MAJOR.MINOR.PATCH-alpha.N`, `-beta.N`, `-pre.N`, or `-rc.N` (for example `2.0.0-alpha.1`, GitHub tag `v2.0.0-alpha.1`).
 - In `SemanticVersion.kt`, a final release `X.Y.Z` always sorts **higher** than any pre-release `X.Y.Z-*` with the same numeric triad, and numeric pre-release identifiers compare numerically rather than lexicographically.
 
 ---
@@ -38,13 +38,12 @@ Examples under this formula:
 | `1.7.1-pre.1` | `1 * 10000 + 7 * 100 + 1` | `10701` | Archived & Spam folders |
 | `1.7.2-pre.1` | `1 * 10000 + 7 * 100 + 2` | `10702` | Device Material UI theming |
 | `1.7.3-pre.1` | `1 * 10000 + 7 * 100 + 3` | `10703` | Lightweight vector & progress update |
-| `1.0.0-alpha.1` | Override (monotonic floor) | `10800` | **Must stay `> 10703`** so `1.7.x` test devices upgrade in place |
+| `1.0.0-alpha.1` | Legacy floor override (`> 10703`) | `10800` | Transitional UI refactor milestone |
+| `2.0.0-alpha.1` | `2 * 10000 + 0 * 100 + 0` | `20000` | Aligned major line strictly above `10800` |
 
-### Monotonic Floor Rule for Version Resets
+### Why `2.0.0` Restores Formula Alignment
 
-When resetting `versionName` downward (such as transitioning from `1.7.3-pre.1` to `1.0.0-alpha.1`), `versionCode` **must never decrease**:
-- Keep `versionCode` strictly greater than all previously shipped APKs (e.g. `10800` > `10703`), incrementing `versionCode` for each subsequent `1.0.0-alpha.N`, `1.0.0-beta.N`, `1.0.0-rc.N`, and `1.0.0` release until `versionName` naturally surpasses the numeric code again.
-- `GitHubUpdateRepository` compares releases by `SemanticVersion` and handles tag transitions cleanly without requiring users to uninstall previous local test builds.
+Moving to the `2.0.0` line ensures `SemanticVersion.toVersionCode()` (`20000`) naturally exceeds every `1.7.x` (`10703`) and `1.0.0-alpha.1` (`10800`) build without special-case overrides. Pre-releases along the `2.0.0` track increment `versionCode` monotonically (for example `20000` -> `20001` -> ...) until stable `2.0.0` / `2.0.1`.
 
 ---
 
@@ -61,10 +60,10 @@ Upgrading directly across any multi-version jump runs idempotent state and stora
 
 The CI workflow in `.github/workflows/prerelease.yml` derives release behavior automatically from the Git tag or `app/build.gradle.kts` `versionName`:
 
-1. **Pre-release tags (containing `-`, e.g. `v1.0.0-alpha.1`):**
+1. **Pre-release tags (containing `-`, e.g. `v2.0.0-alpha.1`):**
    - Publishes with `prerelease: true`, `make_latest: false`
    - Outputs `CleanSMS-<tag>-nonprod-local-test.apk` + `.sha256` checksum
-2. **Stable tags (no `-`, e.g. `v1.0.0`):**
+2. **Stable tags (no `-`, e.g. `v2.0.0`):**
    - Publishes with `prerelease: false`, `make_latest: true`
    - Outputs `CleanSMS-<tag>.apk` + `.sha256` checksum
 3. **Signing Key Continuity:**

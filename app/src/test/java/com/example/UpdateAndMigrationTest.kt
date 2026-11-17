@@ -836,4 +836,35 @@ class UpdateAndMigrationTest {
         assertNotNull(SemanticVersion.parse("v1.0.0-alpha.1"))
         assertTrue(SemanticVersion.parse("v1.0.0-alpha.1")!!.isPreRelease)
     }
+
+    @Test
+    fun appUpgradeManager_upgradeTo200Alpha1_alignsWithSemVerFormula20000AndMigrates() {
+        val prefs = context.getSharedPreferences(AppUpgradeManager.PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit()
+            .clear()
+            .putInt("last_migrated_version_code", 10800)
+            .putString("last_migrated_version_name", "1.0.0-alpha.1")
+            .commit()
+
+        val manager = AppUpgradeManager(context)
+        val report = manager.ensureStateMigrated(
+            targetVersionCode = 20000,
+            targetVersionName = "2.0.0-alpha.1"
+        )
+
+        assertTrue(report.wasMultiVersionJump)
+        assertEquals(6, report.databaseSchemaVersion)
+        assertEquals("1.0.0-alpha.1", report.previousVersionName)
+        assertEquals(10800, report.previousVersionCode)
+        assertEquals(
+            listOf("v2.0.0-alpha.1: Dual-tone cyan & teal speech bubble launcher icon & aligned 2.0.0 SemVer versionCode 20000"),
+            report.appliedMilestones
+        )
+        assertEquals(20000, prefs.getInt("last_migrated_version_code", 0))
+        assertEquals("2.0.0-alpha.1", prefs.getString("last_migrated_version_name", null))
+        val parsed = SemanticVersion.parse("v2.0.0-alpha.1")
+        assertNotNull(parsed)
+        assertTrue(parsed!!.isPreRelease)
+        assertEquals(20000, parsed.toVersionCode())
+    }
 }

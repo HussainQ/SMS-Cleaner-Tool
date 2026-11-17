@@ -115,6 +115,9 @@ class AppUpgradeManager(private val context: Context) {
             if (effectivePrev in 1 until 10800 && targetVersionCode >= 10800) {
                 applied.add("v1.0.0-alpha.1: Decluttered 4-tab layout (Messages, Cleanup sub-menus, Vault, Settings), Dark Mode DataStore persistence, popup contact picker & Minimal Cyan Sweep Envelope icon")
             }
+            if (effectivePrev in 1 until 20000 && targetVersionCode >= 20000) {
+                applied.add("v2.0.0-alpha.1: Dual-tone cyan & teal speech bubble launcher icon & aligned 2.0.0 SemVer versionCode 20000")
+            }
             if (prefs.getString(KEY_GITHUB_REPO, null)?.equals(LEGACY_PLACEHOLDER_REPO, ignoreCase = true) == true) {
                 prefs.edit().putString(KEY_GITHUB_REPO, DEFAULT_GITHUB_REPO).apply()
             }
