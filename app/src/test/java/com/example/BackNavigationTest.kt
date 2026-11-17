@@ -44,15 +44,15 @@ class BackNavigationTest {
         assertEquals(NavigationTab.MESSAGES, vm.uiState.value.currentTab)
         assertEquals(listOf(NavigationTab.MESSAGES), vm.uiState.value.tabBackStack)
 
-        // Click Review -> Rules & Cloud -> Vault -> Scanner -> Review (re-focusing moves Review to top)
-        vm.navigateToTab(NavigationTab.PREVIEW)
-        vm.navigateToTab(NavigationTab.RULES_CLOUD)
+        // Click Cleanup -> Settings -> Vault -> Cleanup (re-focusing moves Cleanup to top)
+        vm.navigateToTab(NavigationTab.CLEANUP)
+        vm.navigateToTab(NavigationTab.SETTINGS)
         vm.navigateToTab(NavigationTab.VAULT)
-        vm.navigateToTab(NavigationTab.PREVIEW)
+        vm.navigateToTab(NavigationTab.CLEANUP)
 
-        assertEquals(NavigationTab.PREVIEW, vm.uiState.value.currentTab)
+        assertEquals(NavigationTab.CLEANUP, vm.uiState.value.currentTab)
         assertEquals(
-            listOf(NavigationTab.MESSAGES, NavigationTab.RULES_CLOUD, NavigationTab.VAULT, NavigationTab.PREVIEW),
+            listOf(NavigationTab.MESSAGES, NavigationTab.SETTINGS, NavigationTab.VAULT, NavigationTab.CLEANUP),
             vm.uiState.value.tabBackStack
         )
 
@@ -60,9 +60,9 @@ class BackNavigationTest {
         assertTrue(vm.handleBackPress())
         assertEquals(NavigationTab.VAULT, vm.uiState.value.currentTab)
 
-        // Back 2 -> Rules & Cloud
+        // Back 2 -> Settings
         assertTrue(vm.handleBackPress())
-        assertEquals(NavigationTab.RULES_CLOUD, vm.uiState.value.currentTab)
+        assertEquals(NavigationTab.SETTINGS, vm.uiState.value.currentTab)
 
         // Back 3 -> Messages root
         assertTrue(vm.handleBackPress())
@@ -76,7 +76,7 @@ class BackNavigationTest {
     @Test
     fun viewModel_handleBackPress_respectsOverlaySearchCategorySubTabHierarchy() {
         val vm = CleanSmsViewModel(app)
-        vm.navigateToTab(NavigationTab.PREVIEW)
+        vm.navigateToCleanupReview()
         vm.setCategoryTab(SmsCategory.OTP)
         vm.setSearchQuery("verify")
         vm.showMessageDetails(
@@ -93,42 +93,50 @@ class BackNavigationTest {
         assertNull(vm.uiState.value.detailMessage)
         assertEquals("verify", vm.uiState.value.searchQuery)
         assertEquals(SmsCategory.OTP, vm.uiState.value.selectedCategoryTab)
-        assertEquals(NavigationTab.PREVIEW, vm.uiState.value.currentTab)
+        assertEquals(NavigationTab.CLEANUP, vm.uiState.value.currentTab)
+        assertEquals(1, vm.uiState.value.cleanupSubTab)
 
-        // 2. Active search clears next without changing category/tab
+        // 2. Active search clears next without changing category/sub-tab
         assertTrue(vm.handleBackPress())
         assertEquals("", vm.uiState.value.searchQuery)
         assertEquals(SmsCategory.OTP, vm.uiState.value.selectedCategoryTab)
-        assertEquals(NavigationTab.PREVIEW, vm.uiState.value.currentTab)
+        assertEquals(NavigationTab.CLEANUP, vm.uiState.value.currentTab)
+        assertEquals(1, vm.uiState.value.cleanupSubTab)
 
-        // 3. Secondary category filter resets to ALL before popping tab
+        // 3. Secondary category filter resets to ALL before leaving Review sub-tab
         assertTrue(vm.handleBackPress())
         assertEquals(SmsCategory.ALL, vm.uiState.value.selectedCategoryTab)
-        assertEquals(NavigationTab.PREVIEW, vm.uiState.value.currentTab)
+        assertEquals(NavigationTab.CLEANUP, vm.uiState.value.currentTab)
+        assertEquals(1, vm.uiState.value.cleanupSubTab)
 
-        // 4. Now tab pops back to Messages landing root
+        // 4. Review sub-tab steps back to Scan sub-tab (0)
+        assertTrue(vm.handleBackPress())
+        assertEquals(NavigationTab.CLEANUP, vm.uiState.value.currentTab)
+        assertEquals(0, vm.uiState.value.cleanupSubTab)
+
+        // 5. Now Cleanup tab pops back to Messages landing root
         assertTrue(vm.handleBackPress())
         assertEquals(NavigationTab.MESSAGES, vm.uiState.value.currentTab)
 
-        // 5. At Messages root with no overlays/sub-levels -> allow exit
+        // 6. At Messages root with no overlays/sub-levels -> allow exit
         assertFalse(vm.handleBackPress())
     }
 
     @Test
-    fun viewModel_handleBackPress_stepsThroughSubTabsBeforePoppingTab() {
+    fun viewModel_handleBackPress_stepsThroughCleanupRulesAndVaultSubTabsBeforePoppingTab() {
         val vm = CleanSmsViewModel(app)
         vm.navigateToTab(NavigationTab.VAULT)
         vm.setVaultSubTab(1) // Deleted Test
-        vm.navigateToTab(NavigationTab.RULES_CLOUD)
-        vm.setRulesCloudSubTab(1) // Cloud Backup
+        vm.navigateToTab(NavigationTab.CLEANUP)
+        vm.setCleanupSubTab(2) // Rules
 
-        // Compact layout: Rules & Cloud (Cloud Backup) -> Rules & Cloud (Rules)
-        assertTrue(vm.handleBackPress(isRulesCloudCompact = true))
-        assertEquals(NavigationTab.RULES_CLOUD, vm.uiState.value.currentTab)
-        assertEquals(0, vm.uiState.value.rulesCloudSubTab)
+        // Cleanup (Rules) -> Cleanup (Scan)
+        assertTrue(vm.handleBackPress())
+        assertEquals(NavigationTab.CLEANUP, vm.uiState.value.currentTab)
+        assertEquals(0, vm.uiState.value.cleanupSubTab)
 
-        // Pops Rules & Cloud -> Vault (Deleted Test)
-        assertTrue(vm.handleBackPress(isRulesCloudCompact = true))
+        // Pops Cleanup -> Vault (Deleted Test)
+        assertTrue(vm.handleBackPress())
         assertEquals(NavigationTab.VAULT, vm.uiState.value.currentTab)
         assertEquals(1, vm.uiState.value.vaultSubTab)
 
@@ -139,12 +147,6 @@ class BackNavigationTest {
 
         // Pops Vault -> Messages root
         assertTrue(vm.handleBackPress())
-        assertEquals(NavigationTab.MESSAGES, vm.uiState.value.currentTab)
-
-        // Wide layout skips compact Rules & Cloud sub-tab
-        vm.navigateToTab(NavigationTab.RULES_CLOUD)
-        vm.setRulesCloudSubTab(1)
-        assertTrue(vm.handleBackPress(isRulesCloudCompact = false))
         assertEquals(NavigationTab.MESSAGES, vm.uiState.value.currentTab)
     }
 
@@ -160,24 +162,26 @@ class BackNavigationTest {
             }
         }
 
-        // At Scanner root with no modals: BackHandler should be disabled so OS can exit
+        // At Messages root with no modals: BackHandler should be disabled so OS can exit
         composeRule.runOnIdle {
             assertFalse(dispatcherOwner!!.onBackPressedDispatcher.hasEnabledCallbacks())
         }
 
-        // Click order: Scanner -> Vault (Deleted Test) -> Review (OTP + search) -> Rules & Cloud (Cloud Backup)
+        // Click order: Messages -> Vault (Deleted Test) -> Cleanup > Review (OTP + search) -> Settings -> App Updates dialog
         composeRule.onNodeWithTag("nav_tab_vault").performClick()
         composeRule.onNodeWithTag("vault_tab_deleted_test").performClick()
 
-        composeRule.onNodeWithTag("nav_tab_preview").performClick()
+        composeRule.onNodeWithTag("nav_tab_cleanup").performClick()
+        composeRule.onNodeWithTag("cleanup_tab_review").performClick()
         composeRule.onNodeWithTag("chip_otp").performClick()
         composeRule.onNodeWithTag("preview_search_input").performTextInput("1234")
         composeRule.mainClock.advanceTimeBy(250)
         composeRule.waitForIdle()
 
-        composeRule.onNodeWithTag("nav_tab_rules_cloud").performClick()
-        composeRule.onNodeWithTag("rules_cloud_tab_cloud").performClick()
-        composeRule.onNodeWithTag("top_bar_updates_btn").performClick()
+        composeRule.onNodeWithTag("nav_tab_settings").performClick()
+        composeRule.onNodeWithTag("cloud_pane_updates_card")
+            .performScrollTo()
+            .performClick()
 
         composeRule.runOnIdle {
             assertTrue(vm.uiState.value.showUpdatesDialog)
@@ -188,36 +192,36 @@ class BackNavigationTest {
         composeRule.runOnIdle { dispatcherOwner!!.onBackPressedDispatcher.onBackPressed() }
         composeRule.waitForIdle()
         assertFalse(vm.uiState.value.showUpdatesDialog)
-        assertEquals(NavigationTab.RULES_CLOUD, vm.uiState.value.currentTab)
-        assertEquals(1, vm.uiState.value.rulesCloudSubTab)
+        assertEquals(NavigationTab.SETTINGS, vm.uiState.value.currentTab)
 
-        // 2. Step back compact sub-tab Cloud Backup -> Rules
+        // 2. Pop top-level tab Settings -> Cleanup (Review)
         composeRule.runOnIdle { dispatcherOwner!!.onBackPressedDispatcher.onBackPressed() }
         composeRule.waitForIdle()
-        assertEquals(NavigationTab.RULES_CLOUD, vm.uiState.value.currentTab)
-        assertEquals(0, vm.uiState.value.rulesCloudSubTab)
-
-        // 3. Pop top-level tab Rules & Cloud -> Review
-        composeRule.runOnIdle { dispatcherOwner!!.onBackPressedDispatcher.onBackPressed() }
-        composeRule.waitForIdle()
-        assertEquals(NavigationTab.PREVIEW, vm.uiState.value.currentTab)
+        assertEquals(NavigationTab.CLEANUP, vm.uiState.value.currentTab)
+        assertEquals(1, vm.uiState.value.cleanupSubTab)
         assertEquals("1234", vm.uiState.value.searchQuery)
         assertEquals(SmsCategory.OTP, vm.uiState.value.selectedCategoryTab)
 
-        // 4. Clear Review search query before resetting category chip
+        // 3. Clear Review search query before resetting category chip
         composeRule.runOnIdle { dispatcherOwner!!.onBackPressedDispatcher.onBackPressed() }
         composeRule.waitForIdle()
         assertEquals("", vm.uiState.value.searchQuery)
         assertEquals(SmsCategory.OTP, vm.uiState.value.selectedCategoryTab)
-        assertEquals(NavigationTab.PREVIEW, vm.uiState.value.currentTab)
+        assertEquals(NavigationTab.CLEANUP, vm.uiState.value.currentTab)
 
-        // 5. Reset Review category filter OTP -> All
+        // 4. Reset Review category filter OTP -> All
         composeRule.runOnIdle { dispatcherOwner!!.onBackPressedDispatcher.onBackPressed() }
         composeRule.waitForIdle()
         assertEquals(SmsCategory.ALL, vm.uiState.value.selectedCategoryTab)
-        assertEquals(NavigationTab.PREVIEW, vm.uiState.value.currentTab)
+        assertEquals(1, vm.uiState.value.cleanupSubTab)
 
-        // 6. Pop Review -> Vault (still on Deleted Test sub-tab)
+        // 5. Step back Cleanup Review -> Scan sub-tab
+        composeRule.runOnIdle { dispatcherOwner!!.onBackPressedDispatcher.onBackPressed() }
+        composeRule.waitForIdle()
+        assertEquals(NavigationTab.CLEANUP, vm.uiState.value.currentTab)
+        assertEquals(0, vm.uiState.value.cleanupSubTab)
+
+        // 6. Pop Cleanup -> Vault (still on Deleted Test sub-tab)
         composeRule.runOnIdle { dispatcherOwner!!.onBackPressedDispatcher.onBackPressed() }
         composeRule.waitForIdle()
         assertEquals(NavigationTab.VAULT, vm.uiState.value.currentTab)
@@ -238,7 +242,7 @@ class BackNavigationTest {
     }
 
     @Test
-    fun composeUi_openAddRuleSheet_dismissesOnBackBeforeTabPop() {
+    fun composeUi_openAddRuleSheet_dismissesOnBackBeforeSubTabAndTabPop() {
         val vm = CleanSmsViewModel(app)
         var dispatcherOwner: androidx.activity.OnBackPressedDispatcherOwner? = null
 
@@ -249,22 +253,32 @@ class BackNavigationTest {
             }
         }
 
-        // Navigate to Rules & Cloud and open New Rule bottom sheet
-        composeRule.onNodeWithTag("nav_tab_rules_cloud").performClick()
-        composeRule.onNodeWithTag("add_rule_fab_button").performClick()
+        // Navigate to Cleanup -> Rules and open New Rule bottom sheet
+        composeRule.onNodeWithTag("nav_tab_cleanup").performClick()
+        composeRule.onNodeWithTag("cleanup_tab_rules").performClick()
+        composeRule.onNodeWithTag("add_rule_fab_button")
+            .performScrollTo()
+            .performClick()
 
         composeRule.runOnIdle {
             assertTrue(vm.uiState.value.showAddCustomRuleSheet)
             assertTrue(dispatcherOwner!!.onBackPressedDispatcher.hasEnabledCallbacks())
         }
 
-        // Back 1: closes AddCustomRuleSheet without leaving Rules & Cloud
+        // Back 1: closes AddCustomRuleSheet without leaving Cleanup > Rules
         composeRule.runOnIdle { dispatcherOwner!!.onBackPressedDispatcher.onBackPressed() }
         composeRule.waitForIdle()
         assertFalse(vm.uiState.value.showAddCustomRuleSheet)
-        assertEquals(NavigationTab.RULES_CLOUD, vm.uiState.value.currentTab)
+        assertEquals(NavigationTab.CLEANUP, vm.uiState.value.currentTab)
+        assertEquals(2, vm.uiState.value.cleanupSubTab)
 
-        // Back 2: pops Rules & Cloud -> Messages root and disables callbacks
+        // Back 2: steps Cleanup > Rules -> Cleanup > Scan
+        composeRule.runOnIdle { dispatcherOwner!!.onBackPressedDispatcher.onBackPressed() }
+        composeRule.waitForIdle()
+        assertEquals(NavigationTab.CLEANUP, vm.uiState.value.currentTab)
+        assertEquals(0, vm.uiState.value.cleanupSubTab)
+
+        // Back 3: pops Cleanup -> Messages root and disables callbacks
         composeRule.runOnIdle { dispatcherOwner!!.onBackPressedDispatcher.onBackPressed() }
         composeRule.waitForIdle()
         assertEquals(NavigationTab.MESSAGES, vm.uiState.value.currentTab)

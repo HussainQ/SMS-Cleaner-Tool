@@ -253,7 +253,8 @@ class ContactChecklistAndInAppUpdateTest {
                 CleanSmsApp(viewModel = vm)
             }
         }
-        composeRule.onNodeWithTag("nav_tab_scanner").performClick()
+        composeRule.onNodeWithTag("nav_tab_cleanup").performClick()
+        composeRule.onNodeWithTag("cleanup_tab_rules").performClick()
         composeRule.waitUntil(timeoutMillis = 5000L) {
             ShadowLooper.idleMainLooper()
             vm.uiState.value.scannerContactEntries.isNotEmpty()
@@ -263,16 +264,31 @@ class ContactChecklistAndInAppUpdateTest {
         assertTrue("Expected non-empty demo contact checklist entries", entries.isNotEmpty())
         val firstContact = entries.first().contact
 
-        // Scroll outer ScannerScreen container to bring the checklist LazyColumn directly into viewport
-        composeRule.onNodeWithTag("scanner_contact_filter_list").performScrollTo()
-        composeRule.onNodeWithTag("scanner_contact_filter_list")
-            .performScrollToNode(hasTestTag("scanner_contact_filter_checkbox_${firstContact.id}"))
-        composeRule.onNodeWithTag("scanner_contact_filter_checkbox_${firstContact.id}").performClick()
+        // Inline contact list should not be rendered on the Scanner page; only popup opens when user selects it
+        composeRule.onNodeWithTag("scanner_contact_filter_list").assertDoesNotExist()
+        composeRule.onNodeWithTag("scanner_no_contacts_selected_hint").assertExists()
+
+        // Tap Select Contacts to open popup dialog
+        composeRule.onNodeWithTag("main_choose_contacts_button")
+            .performScrollTo()
+            .performClick()
+        composeRule.waitUntil(timeoutMillis = 5000L) {
+            ShadowLooper.idleMainLooper()
+            vm.uiState.value.showMainContactPickerDialog
+        }
+        composeRule.onNodeWithTag("contact_picker_dialog").assertExists()
+
+        // Select first contact inside the popup and Apply
+        composeRule.onNodeWithTag("contact_picker_row_${firstContact.id}")
+            .performScrollTo()
+            .performClick()
+        composeRule.onNodeWithTag("contact_picker_confirm_btn").performClick()
 
         composeRule.waitUntil(timeoutMillis = 5000L) {
             ShadowLooper.idleMainLooper()
             val state = vm.uiState.value
-            state.filterByContactEnabled &&
+            !state.showMainContactPickerDialog &&
+                state.filterByContactEnabled &&
                 state.selectedContacts.any { it.id == firstContact.id } &&
                 state.contactFilterScope.isActive
         }
@@ -281,9 +297,10 @@ class ContactChecklistAndInAppUpdateTest {
         assertTrue(stateAfterCheck.filterByContactEnabled)
         assertTrue(stateAfterCheck.selectedContacts.any { it.id == firstContact.id })
         assertTrue(stateAfterCheck.contactFilterScope.isActive)
+        composeRule.onNodeWithTag("scanner_selected_contact_chip_${firstContact.id}").assertExists()
         composeRule.onNodeWithTag("scanner_contact_filter_scope_banner").assertExists()
 
-        // Clear unchecks all
+        // Clear unchecks all and hides selected chips
         composeRule.onNodeWithTag("scanner_contact_filter_clear_btn")
             .performScrollTo()
             .performClick()
@@ -292,6 +309,7 @@ class ContactChecklistAndInAppUpdateTest {
             vm.uiState.value.selectedContacts.isEmpty() && !vm.uiState.value.contactFilterScope.isActive
         }
         assertTrue(vm.uiState.value.selectedContacts.isEmpty())
+        composeRule.onNodeWithTag("scanner_selected_contact_chip_${firstContact.id}").assertDoesNotExist()
     }
 
     @Test

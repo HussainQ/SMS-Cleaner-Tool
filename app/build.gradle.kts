@@ -17,8 +17,8 @@ android {
     applicationId = "com.aistudio.cleansms.jrvxpq"
     minSdk = 24
     targetSdk = 36
-    versionCode = 10703
-    versionName = "1.7.3-pre.1"
+    versionCode = 10800
+    versionName = "1.0.0-alpha.1"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -98,7 +98,7 @@ dependencies {
   implementation(libs.androidx.compose.ui.graphics)
   implementation(libs.androidx.compose.ui.tooling.preview)
   implementation(libs.androidx.core.ktx)
-  // implementation(libs.androidx.datastore.preferences)
+  implementation(libs.androidx.datastore.preferences)
   implementation(libs.androidx.lifecycle.runtime.compose)
   implementation(libs.androidx.lifecycle.runtime.ktx)
   implementation(libs.androidx.lifecycle.viewmodel.compose)
@@ -137,6 +137,10 @@ dependencies {
 // If Gradle is invoked with an older JDK (e.g. JDK 17), auto-select a Java 21 test launcher.
 val javaToolchains = extensions.getByType(JavaToolchainService::class.java)
 tasks.withType<Test>().configureEach {
+  systemProperty(
+    "cleansms.generateScreenshots",
+    providers.gradleProperty("generateScreenshots").orElse("false").get()
+  )
   if (!JavaVersion.current().isCompatibleWith(JavaVersion.VERSION_21)) {
     javaLauncher.set(
       javaToolchains.launcherFor {

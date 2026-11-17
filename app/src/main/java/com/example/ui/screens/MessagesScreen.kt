@@ -67,6 +67,7 @@ fun MessagesScreen(
     onPickMedia: () -> Unit,
     onRequestSendSmsPermission: () -> Unit,
     onRequestDefaultSmsRole: () -> Unit,
+    onOpenSetupSheet: () -> Unit = { viewModel.openSetupStatusSheet() },
     modifier: Modifier = Modifier
 ) {
     // Handles Back inside Messages tab: Conversation Thread -> Search Query -> Protocol Filter -> Folder -> Tab/Exit
@@ -107,8 +108,7 @@ fun MessagesScreen(
                     onThreadClick = { viewModel.openConversation(it.threadKey) },
                     onOpenThreadActions = { actionMenuThread = it },
                     onNewMessageClick = { viewModel.openNewMessageDialog() },
-                    onRequestDefaultSmsRole = onRequestDefaultSmsRole,
-                    onRequestSendSmsPermission = onRequestSendSmsPermission,
+                    onOpenSetupSheet = onOpenSetupSheet,
                     modifier = Modifier
                         .weight(0.40f)
                         .fillMaxHeight()
@@ -163,8 +163,7 @@ fun MessagesScreen(
                     onThreadClick = { viewModel.openConversation(it.threadKey) },
                     onOpenThreadActions = { actionMenuThread = it },
                     onNewMessageClick = { viewModel.openNewMessageDialog() },
-                    onRequestDefaultSmsRole = onRequestDefaultSmsRole,
-                    onRequestSendSmsPermission = onRequestSendSmsPermission,
+                    onOpenSetupSheet = onOpenSetupSheet,
                     modifier = Modifier.fillMaxSize()
                 )
             }
@@ -190,9 +189,12 @@ fun MessagesScreen(
     }
 
     if (uiState.showMessagesSettingsDialog) {
+        val effectiveDarkMode = uiState.resolveIsDarkTheme(androidx.compose.foundation.isSystemInDarkTheme())
         MessagesSettingsDialog(
             compactMessagesUi = uiState.compactMessagesUi,
             onCompactChange = { viewModel.setCompactMessagesUi(it) },
+            darkModeEnabled = effectiveDarkMode,
+            onDarkModeChange = { viewModel.setDarkModeEnabled(it) },
             useDeviceMaterialTheme = uiState.useDeviceMaterialTheme,
             onUseDeviceMaterialThemeChange = { viewModel.setUseDeviceMaterialTheme(it) },
             onDismiss = { viewModel.dismissMessagesSettingsDialog() }
@@ -228,8 +230,7 @@ private fun ConversationListPane(
     onThreadClick: (ConversationThreadSummary) -> Unit,
     onOpenThreadActions: (ConversationThreadSummary) -> Unit,
     onNewMessageClick: () -> Unit,
-    onRequestDefaultSmsRole: () -> Unit,
-    onRequestSendSmsPermission: () -> Unit,
+    onOpenSetupSheet: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val outerHorizontal = if (compactMode) 12.dp else 16.dp
@@ -485,16 +486,12 @@ private fun ConversationListPane(
 
             Spacer(modifier = Modifier.height(sectionGap))
 
-            val pinStatusAtTop = !compactMode || (!uiState.isDemoMode && !uiState.hasSendSmsPermission)
-            if (pinStatusAtTop) {
-                MessagingStatusStrip(
-                    isDemoMode = uiState.isDemoMode,
-                    isDefaultSmsApp = uiState.isDefaultSmsApp,
-                    hasSendSmsPermission = uiState.hasSendSmsPermission,
-                    unreadCount = uiState.totalUnreadMessagesCount,
-                    compactMode = compactMode,
-                    onRequestDefaultSmsRole = onRequestDefaultSmsRole,
-                    onRequestSendSmsPermission = onRequestSendSmsPermission
+            val showCompactSetupPill = uiState.isDemoMode || !uiState.isDefaultSmsApp || !uiState.hasSendSmsPermission
+            if (!compactMode && showCompactSetupPill) {
+                com.example.ui.components.SetupStatusPillButton(
+                    uiState = uiState,
+                    onClick = onOpenSetupSheet,
+                    testTag = "messages_setup_status_pill"
                 )
 
                 Spacer(modifier = Modifier.height(sectionGap))
@@ -587,17 +584,13 @@ private fun ConversationListPane(
                             onOpenActions = { onOpenThreadActions(thread) }
                         )
                     }
-                    if (!pinStatusAtTop) {
+                    if (compactMode) {
                         item(key = "messaging_status_footer") {
                             Spacer(modifier = Modifier.height(4.dp))
-                            MessagingStatusStrip(
-                                isDemoMode = uiState.isDemoMode,
-                                isDefaultSmsApp = uiState.isDefaultSmsApp,
-                                hasSendSmsPermission = uiState.hasSendSmsPermission,
-                                unreadCount = uiState.totalUnreadMessagesCount,
-                                compactMode = compactMode,
-                                onRequestDefaultSmsRole = onRequestDefaultSmsRole,
-                                onRequestSendSmsPermission = onRequestSendSmsPermission
+                            com.example.ui.components.SetupStatusPillButton(
+                                uiState = uiState,
+                                onClick = onOpenSetupSheet,
+                                testTag = "messages_setup_status_pill"
                             )
                         }
                     }
@@ -687,97 +680,6 @@ private fun ProtocolFilterChipItem(
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                 color = if (selected) accentColor else MaterialTheme.colorScheme.onSurfaceVariant
             )
-        }
-    }
-}
-
-@Composable
-private fun MessagingStatusStrip(
-    isDemoMode: Boolean,
-    isDefaultSmsApp: Boolean,
-    hasSendSmsPermission: Boolean,
-    unreadCount: Int,
-    compactMode: Boolean,
-    onRequestDefaultSmsRole: () -> Unit,
-    onRequestSendSmsPermission: () -> Unit
-) {
-    Surface(
-        shape = RoundedCornerShape(if (compactMode) 10.dp else 12.dp),
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.24f)),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(
-                    horizontal = if (compactMode) 10.dp else 12.dp,
-                    vertical = if (compactMode) 4.dp else 8.dp
-                ),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.weight(1f)
-            ) {
-                Icon(
-                    imageVector = if (isDefaultSmsApp) AppIcons.Verified else AppIcons.Sms,
-                    contentDescription = "Messaging status",
-                    tint = if (isDefaultSmsApp) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(if (compactMode) 15.dp else 18.dp)
-                )
-                val statusTitle = when {
-                    isDemoMode -> if (compactMode) "Demo Messaging • SMS/MMS/RCS" else "Demo Messaging Active • SMS / MMS / RCS"
-                    isDefaultSmsApp -> "Default Messaging App Active"
-                    else -> "Standard SMS Reader"
-                }
-                if (compactMode) {
-                    Text(
-                        text = if (unreadCount > 0) "$statusTitle • $unreadCount unread" else statusTitle,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                } else {
-                    Column {
-                        Text(
-                            text = statusTitle,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        if (unreadCount > 0) {
-                            Text(
-                                text = "$unreadCount unread conversation${if (unreadCount == 1) "" else "s"}",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                }
-            }
-
-            if (!isDemoMode && !hasSendSmsPermission) {
-                TextButton(
-                    onClick = onRequestSendSmsPermission,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                    modifier = Modifier.testTag("grant_send_sms_btn")
-                ) {
-                    Text("Allow Send", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                }
-            } else if (!isDefaultSmsApp) {
-                TextButton(
-                    onClick = onRequestDefaultSmsRole,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                    modifier = Modifier.testTag("messages_set_default_sms_btn")
-                ) {
-                    Text("Set Default", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                }
-            }
         }
     }
 }
@@ -1725,6 +1627,8 @@ private fun NewMessageRecipientDialog(
 private fun MessagesSettingsDialog(
     compactMessagesUi: Boolean,
     onCompactChange: (Boolean) -> Unit,
+    darkModeEnabled: Boolean,
+    onDarkModeChange: (Boolean) -> Unit,
     useDeviceMaterialTheme: Boolean,
     onUseDeviceMaterialThemeChange: (Boolean) -> Unit,
     onDismiss: () -> Unit
@@ -1761,10 +1665,42 @@ private fun MessagesSettingsDialog(
                 }
 
                 Text(
-                    text = "Adjust layout density and theme appearance for SMS, MMS, and RCS threads. Synced with Rules & Cloud Settings.",
+                    text = "Adjust layout density and Material 3 theme appearance across the app. Synced with Settings.",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Material 3 Dark Mode",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 14.sp
+                            )
+                            Text(
+                                text = if (darkModeEnabled) "Dark theme enabled across app" else "Light theme enabled across app",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = darkModeEnabled,
+                            onCheckedChange = onDarkModeChange,
+                            modifier = Modifier.testTag("messages_dialog_dark_mode_switch")
+                        )
+                    }
+                }
 
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
@@ -1785,7 +1721,7 @@ private fun MessagesSettingsDialog(
                                 fontSize = 14.sp
                             )
                             Text(
-                                text = if (useDeviceMaterialTheme) "Following device Dark/Light & Material You palette" else "Using Classic CleanSMS Navy & Cyan theme",
+                                text = if (useDeviceMaterialTheme) "Following device Material You colors" else "Using Classic CleanSMS Navy & Cyan palette",
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

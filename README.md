@@ -1,6 +1,6 @@
 # CleanSMS 💬✨
 
-> **Intelligent SMS & RCS Message Organizer, De-duplicator, and Cleaner for Android & Google Messages.**
+> **On-device SMS, MMS & RCS message organizer, de-duplicator, and cleaner built with Jetpack Compose and Material Design 3.**
 
 [![Platform](https://img.shields.io/badge/Platform-Android-3DDC84?style=flat-square&logo=android&logoColor=white)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.2.10-7F52FF?style=flat-square&logo=kotlin&logoColor=white)](https://kotlinlang.org)
@@ -8,234 +8,80 @@
 [![Min SDK](https://img.shields.io/badge/Min%20SDK-24%20(Android%207.0)-informational?style=flat-square)](https://developer.android.com/about/versions)
 [![Target SDK](https://img.shields.io/badge/Target%20SDK-36%20(Android%2016)-success?style=flat-square)](https://developer.android.com/about/versions)
 [![Privacy](https://img.shields.io/badge/Privacy-100%25%20On--Device-success?style=flat-square&logo=shield)](https://github.com/HussainQ/SMS-Cleaner-Tool)
-[![Pre-Release](https://img.shields.io/badge/Pre--Release-v1.7.2--pre.1%20(Local%20Test%20Only)-orange?style=flat-square)](https://github.com/HussainQ/SMS-Cleaner-Tool/releases)
+[![Alpha Release](https://img.shields.io/badge/Alpha-v1.0.0--alpha.1-orange?style=flat-square)](https://github.com/HussainQ/SMS-Cleaner-Tool/releases)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue?style=flat-square)](LICENSE)
 
 > [!NOTE]
-> **Current Pre-Release (`v1.7.2-pre.1`, `versionCode = 10702`)**:
-> Non-production local testing pre-release from [`HussainQ/SMS-Cleaner-Tool/releases`](https://github.com/HussainQ/SMS-Cleaner-Tool/releases). See [`RELEASE_NOTES.md`](RELEASE_NOTES.md) and [`.github/workflows/prerelease.yml`](.github/workflows/prerelease.yml) for pre-release artifacts and SHA-256 verification.
-
-> [!IMPORTANT]
-> **Upgrading from Older Releases (One-Time Uninstall Required for Legacy Package IDs):**
-> CleanSMS uses the locked Application ID **`com.aistudio.cleansms.jrvxpq`** with persistent CI signing so updates from `v1.6.1+` through `v1.7.1-pre.1` to `v1.7.2-pre.1` install in-place cleanly. If your device has a pre-`1.6.1` build installed under a different package name or ephemeral keystore, uninstall it first before installing `v1.7.2-pre.1` to avoid Android's *"App not installed as package conflicts with an existing package"* error.
+> **Latest Pre-Release (`v1.0.0-alpha.1`)**: See [`RELEASE_NOTES.md`](RELEASE_NOTES.md) or visit [`HussainQ/SMS-Cleaner-Tool/releases`](https://github.com/HussainQ/SMS-Cleaner-Tool/releases) for downloadable APKs and SHA-256 checksums.
 
 ---
 
-## 📱 Screenshots & Overview
+## 📸 Screenshots
 
-<p align="center">
-  <img src="docs/screenshots/dashboard_preview.jpg" alt="CleanSMS Clutter Dashboard" width="48%" />
-  <img src="docs/screenshots/review_preview.jpg" alt="CleanSMS Review & Clean Screen" width="48%" />
-</p>
+| Messages Inbox | Cleanup • Scan | Cleanup • Review |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/messages_inbox.png" alt="Messages Inbox" width="240"/> | <img src="docs/screenshots/cleanup_scan.png" alt="Cleanup Scan" width="240"/> | <img src="docs/screenshots/cleanup_review.png" alt="Cleanup Review" width="240"/> |
 
-**CleanSMS** safely cleans up clutter, duplicate notifications, expired one-time passwords (OTPs), promotional blasts, and spam messages from your Android messaging inbox while preserving your important conversations, RCS read receipts, and message threads.
+| Cleanup • Rules | Quarantine Vault | Settings |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/cleanup_rules.png" alt="Cleanup Rules" width="240"/> | <img src="docs/screenshots/vault_recovery.png" alt="Quarantine Vault" width="240"/> | <img src="docs/screenshots/settings_hub.png" alt="Settings" width="240"/> |
+
+---
+
+## 📱 Overview
+
+**CleanSMS** organizes conversations and safely clears duplicate messages, expired one-time passwords (OTPs), promotional blasts, and phishing/spam while preserving important chats, RCS read receipts, and attachments.
+
+The interface is organized around **4 destinations**:
+- **Messages** — SMS, MMS & RCS inbox with search, protocol pills (`All`, `SMS`, `MMS`, `RCS`), `Archived` and `Spam` folders, and compose/reply support.
+- **Cleanup** — Segmented **Scan**, **Review**, and **Rules** workspace with background scan progress feedback and built-in, per-contact, or custom rules.
+- **Vault** — Quarantine holding area with 30-day **Recently Deleted** batch recovery back to your inbox.
+- **Settings** — Centralized preferences for **Material 3 Dark Mode** (persisted via Jetpack DataStore), Material You dynamic colors, Compact UI density, inbox permissions sheet, collapsible **Cloud Backup**, and **App Updates**.
 
 ---
 
 ## 🚀 Key Features
 
-### 1. 🔄 Smart SMS & RCS Chat Deduplication
-- **Content & Sender Normalization**: Trims redundant whitespace, normalizes casing, and clusters identical SMS or RCS messages.
-- **RCS Thread Integrity**: Correctly recognizes Rich Communication Services (RCS) chats, preserving conversation thread IDs (`threadId`), delivery status, and read receipts (`READ`, `DELIVERED`, `SENT`).
-- **Configurable Keep Strategy**: Choose between `KEEP_OLDEST` (preserves original conversation anchor) or `KEEP_NEWEST` (keeps the latest retry).
-
-### 2. 🛡️ Quarantine Vault & Testing Delete Recovery
-- **Zero Accidental Data Loss**: Cleaned messages are moved to a local **Quarantine Vault** before permanent deletion.
-- **Testing Feature — Recover Permanently Deleted Messages (Toggle)**: When enabled, permanent deletions store local recovery snapshots (`deleted_test_snapshots`) in **Vault > Deleted Test** so testers can restore deleted messages back to the inbox and re-verify rules.
-- **Permanent Deletion Protection**: Explicit confirmation dialog safeguards against irreversible removals.
-
-### 3. 🔍 Per-Contact Filtering, Thread Linking & Instant Search
-- **Device Contacts & Google Messages Linking (`READ_CONTACTS`)**: Matches device address-book contacts with existing SMS/RCS threads via normalized phone keys (`PhoneNormalizer`).
-- **Target vs Protect (VIP) Modes**: Select contacts directly in **Main Detection Rules** (to target only selected contacts or shield VIP contacts) as well as inside **Custom Cleaning Rules**.
-- **Expired OTP, Promo & Spam Filters**: Identifies temporary verification codes (Google `G-`, Facebook `FB-`, banking PINs) while preserving fresh codes, and flags commercial blasts or phishing links.
-- **Debounced Live Search & Summary Badges**: O(1) `ClassificationSummary` counts and background-filtered search (`Dispatchers.Default`) keep scrolling smooth even on 5,000+ message inboxes.
-
-### 4. ⚙️ Editable Custom Filter Rules Engine
-- User-defined rule engine supporting:
-  - Per-contact multi-select picker (`ContactPickerDialog`).
-  - Sender match (exact, contact display name, or substring).
-  - Keyword matching with **AND** / **OR** logic (`matchAnyKeyword`).
-  - Age thresholding (e.g. older than 7, 30, or 90 days) and date ranges.
-- Existing rules can be **edited in place**, toggled, or deleted anytime.
-
-### 5. 🔐 On-Device OAuth Secrets Vault & Cloud Backup
-- **Explicit Authorization Gate**: On-device OAuth tokens (Google Drive, Dropbox) are pulled **if and only if** the user explicitly authorises the connection via the `AuthorizeServiceDialog`.
-- **Strictly Local Storage**: Pulled secrets and keys are stored exclusively in the app's private sandbox (`LocalAuthTokenStore` + Room `oauth_credentials` entity) and are never exposed or sent to remote servers.
-- **Zero Secrets in Git**: No credentials, client secrets, or private keys are ever hardcoded or tracked in version control.
-- **One-Tap Revocation & Purge**: Users can revoke service access or permanently wipe all stored credentials via the "Purge All Secrets" button.
-- **Portable JSON Snapshots**: Export and restore full encrypted backups of quarantined messages and custom rules.
-
-### 6. 🔒 Runtime Permissions (`READ_SMS`, `WRITE_SMS`, `READ_CONTACTS`) & Seamless SMS Role Hand-Back
-- **Runtime Permissions**: Requests `READ_SMS`, `WRITE_SMS`, and `READ_CONTACTS` via `ActivityResultContracts`, with educational rationale and Settings redirect dialogs plus **Demo Mode** fallback.
-- **Seamless Default SMS Role Workflow**: Tracks the prior Default SMS app (e.g., Google Messages), transitions out of the amber prompt when active, and provides a one-tap **"Hand Back Default SMS Role"** workflow when finished cleaning.
-
-### 7. 📐 Responsive & Adaptive Layouts
-- **Tablet & Foldable Support**: Adapts automatically on wide screens (`maxWidth >= 720.dp`) using a side `NavigationRail` and two-column split cards.
-- **Compact Phone Layout**: Optimized bottom navigation, segmented tabs, and fluid touch targets (minimum 48dp).
-
-### 8. 🔄 In-App GitHub Release Updater & Airtight Multi-Version Migrations
-- **GitHub Releases API Sync**: Checks [`HussainQ/SMS-Cleaner-Tool`](https://github.com/HussainQ/SMS-Cleaner-Tool/releases) using SemVer 2.0.0 ordering across both stable and pre-release tracks.
-- **Multi-Version Upgrade Path**: Aggregates changelogs across any skipped intermediate versions, fetches `.apk` + `.sha256` verification assets, and pairs with non-destructive Room (`v1 → v4`) and preference migrations so multi-version jumps preserve all user data.
+- **Smart SMS & RCS Deduplication**: Normalizes whitespace and phone numbers to cluster redundant copies (`KEEP_OLDEST` or `KEEP_NEWEST`) while preserving RCS threads and delivery receipts.
+- **Material 3 Dark Mode & Dynamic UI**: Explicit Dark/Light override persisted with Jetpack DataStore alongside Android 12+ Material You color support and compact inbox density toggles.
+- **Popup Per-Contact Filtering & Custom Rules**: Open the on-demand **Select Contacts** picker to target or VIP-protect specific threads, or author custom keyword/sender/age rules.
+- **Quarantine Vault & 30-Day Recovery**: Moves flagged clutter into safe local quarantine first, with batch restore for deleted threads.
+- **On-Device OAuth Vault & Collapsible Cloud Backup**: Optional Google Drive and Dropbox snapshots with strictly local token storage and one-tap revocation.
+- **Runtime Permissions & Default SMS Sheet**: Cleanly switch between Demo Mode and Live Device SMS or manage permissions and Default SMS handover from a unified bottom sheet.
+- **In-App GitHub Updater**: Checks GitHub releases in **Settings > App Updates** with direct APK download and SHA-256 verification.
 
 ---
 
-## 📦 Package & Android Configuration
-
-| Property | Value |
-| :--- | :--- |
-| **App Name** | `CleanSMS` |
-| **Application ID** | `com.aistudio.cleansms.jrvxpq` *(locked consistently for all future updates)* |
-| **Package Namespace** | `com.example` |
-| **Compile SDK** | `Android 16 (API 36.1)` |
-| **Target SDK** | `Android 16 (API 36)` |
-| **Minimum SDK** | `Android 7.0 (API 24)` |
-| **UI Framework** | Jetpack Compose (Material Design 3) |
-| **Architecture** | Clean Architecture / MVVM + StateFlow |
-| **Local Database** | Room Database v6 (KSP, `v1 → v6` migrations, Flow background contact queries & cross-app folder states) |
-| **Default SMS Role** | Seamless Role Takeover & Hand-Back (`RoleManager` / `ACTION_MANAGE_DEFAULT_APPS_SETTINGS`) |
-
-#### Installing Over a Previous Version
-- **Why package conflicts happen:** Android rejects in-place APK updates with *"App not installed as package conflicts with an existing package"* if the installed copy has a different package ID or a different signing certificate (earlier CI runs generated ephemeral keys).
-- **One-time migration step:** Export any custom rules/messages you want to keep in **Rules & Cloud**, **uninstall the old CleanSMS app**, and then install the latest release APK (`com.aistudio.cleansms.jrvxpq`). Subsequent builds reuse the same Application ID and persistent CI keystore so in-place updates work going forward.
-
-### Declared System Permissions
-
-```xml
-<!-- Manifest Permissions in AndroidManifest.xml -->
-<uses-permission android:name="android.permission.READ_SMS" />
-<uses-permission android:name="android.permission.WRITE_SMS" />
-<uses-permission android:name="android.permission.SEND_SMS" />
-<uses-permission android:name="android.permission.RECEIVE_SMS" />
-<uses-permission android:name="android.permission.RECEIVE_MMS" />
-<uses-permission android:name="android.permission.RECEIVE_WAP_PUSH" />
-<uses-permission android:name="android.permission.READ_CONTACTS" />
-<uses-permission android:name="android.permission.INTERNET" />
-<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-```
-
----
-
-## 🏷️ Release Version Schema
-
-CleanSMS follows strict **Semantic Versioning** (`MAJOR.MINOR.PATCH`):
-
-$$\text{Version Name} = \text{MAJOR}.\text{MINOR}.\text{PATCH}$$
-
-$$\text{Version Code} = (\text{MAJOR} \times 10000) + (\text{MINOR} \times 100) + \text{PATCH}$$
-
-### Version Code Examples
-
-| Release Tag | `versionName` | `versionCode` | Release Stage | Description |
-| :--- | :--- | :--- | :--- | :--- |
-| `v1.0.0` | `1.0.0` | `10000` | Alpha | Initial prototype, basic deduplication & scanner |
-| `v1.1.0` | `1.1.0` | `10100` | Alpha | Custom rules engine, Room Quarantine Vault, JSON backup |
-| `v1.2.0` | `1.2.0` | `10200` | Beta | RCS message support, thread cluster deduplication, read receipt preservation |
-| `v1.3.0` | `1.3.0` | `10300` | Beta | Reactive foldable & tablet layouts, search bar, secrets audit |
-| `v1.4.0` | `1.4.0` | `10400` | Beta | On-device OAuth secret pulling, user authorization gate, local vault storage |
-| `v1.5.0-pre.1` | `1.5.0-pre.1` | `10500` | Pre-Release (Local Test Only) | Android Runtime & Manifest SMS Permissions (`READ_SMS`, `RECEIVE_SMS`, `WRITE_SMS`), ViewModel Factory fix |
-| `v1.6.0-pre.1` | `1.6.0-pre.1` | `10600` | Pre-Release | Per-contact filtering (`READ_CONTACTS`), seamless Default SMS role hand-back, testing deleted-message recovery toggle, editable custom rules, 5,000+ inbox ANR/performance optimizations |
-| `v1.6.1-pre.1` | `1.6.1-pre.1` | `10601` | Pre-Release (Local Test Only) | Fixed Filter By Contact + deduplication bug across contact threads, persistent CI signing keystore, Default SMS App status indicator UI, GitHub Releases updater |
-| `v1.6.2-pre.1` | `1.6.2-pre.1` | `10602` | Pre-Release (Local Test Only) | Background Room `@Query` + Coroutine `Flow` Filter By Contact pipeline, Vault contact filter & group review, direct in-app APK updater, Recently Deleted 30-day batch restoration |
-| `v1.7.0-pre.1` | `1.7.0-pre.1` | `10700` | Pre-Release (Local Test Only) | Full SMS/MMS/RCS Messages landing tab, top conversation search + protocol filters, configurable Compact Messages UI density in Settings |
-| `v1.7.1-pre.1` | `1.7.1-pre.1` | `10701` | Pre-Release (Local Test Only) | Cross-app Archived & Spam folders (Room v6 `thread_folder_states` + Telephony/BlockedNumber sync) & direct one-tap Compact UI toggle |
-| `v1.7.2-pre.1` | `1.7.2-pre.1` | `10702` | Pre-Release (Local Test Only) | Device Material UI & Android 12+ Material You dynamic theming with synced Settings toggle |
-
-### Release Tracks
-
-1. **Internal / Alpha (`develop`)**:
-   - Automated JVM unit and Robolectric test execution.
-   - Verified via `gradle :app:testDebugUnitTest`.
-2. **Beta / Open Testing (`main` / `release/*`)**:
-   - Signed debug/release APKs for user feedback and multi-device testing.
-   - Built via `gradle assembleRelease`.
-3. **Production (`production`)**:
-   - Google Play Android App Bundle (`.aab`) with ProGuard optimizations.
-   - Built via `gradle bundleRelease`.
-
----
-
-## 🛠️ Project Structure
-
-```
-CleanSMS/
-├── app/
-│   ├── src/
-│   │   ├── main/
-│   │   │   ├── java/com/example/
-│   │   │   │   ├── MainActivity.kt                 # Compose root, navigation, permissions launcher
-│   │   │   │   ├── cloud/
-│   │   │   │   │   ├── CloudBackupManager.kt       # JSON serialization & snapshot parser
-│   │   │   │   │   ├── CloudSecretsConfig.kt       # Safe credential access & masking
-│   │   │   │   │   ├── DeviceOAuthManager.kt       # On-device OAuth secret pulling with user consent
-│   │   │   │   │   └── LocalAuthTokenStore.kt      # Private on-device credentials vault
-│   │   │   │   ├── data/
-│   │   │   │   │   ├── SmsClassifier.kt            # Categorization, regex, and duplicate logic
-│   │   │   │   │   ├── SmsRepository.kt            # Telephony content provider & demo dataset
-│   │   │   │   │   └── local/
-│   │   │   │   │       ├── AppDatabase.kt          # Room DB (Quarantine, Rules, Backups, OAuth)
-│   │   │   │   │       ├── CleanSmsDao.kt          # Room DAO interfaces & reactive Flows
-│   │   │   │   │       └── Entities.kt             # Room table definitions
-│   │   │   │   ├── model/                          # Data models & DTOs
-│   │   │   │   ├── telephony/                      # Default SMS receivers & services
-│   │   │   │   └── ui/
-│   │   │   │       ├── CleanSmsViewModel.kt        # State management & business logic
-│   │   │   │       ├── components/                 # Dialogs, sheets, message cards, banners
-│   │   │   │       ├── screens/                    # Scanner, Review, Vault, RulesAndCloud
-│   │   │   │       └── theme/                      # Material 3 ColorScheme, Typography, Shapes
-│   │   │   ├── res/                                # Android resource files & drawables
-│   │   │   └── AndroidManifest.xml                 # Permissions & system receivers
-│   │   └── test/java/com/example/
-│   │       ├── DeviceOAuthManagerTest.kt           # Robolectric tests for OAuth pulling & authorization
-│   │       ├── ExampleUnitTest.kt                  # 14 comprehensive unit test cases
-│   │       └── RuntimePermissionsTest.kt           # Robolectric tests for READ_SMS & WRITE_SMS flow
-│   └── build.gradle.kts                            # App module dependencies & SDK config
-├── docs/
-│   └── screenshots/                                # High-res app preview assets
-├── gradle/
-│   └── libs.versions.toml                          # Version catalog
-├── .env.example                                    # Environment template (no secrets)
-├── .gitignore                                      # Comprehensive protection against credentials
-├── metadata.json                                   # AI Studio platform identity
-└── README.md                                       # Project documentation
-```
-
----
-
-## 🧪 Testing & Verification
-
-The project includes unit and Robolectric test suites covering Critical User Journeys (CUJs):
+## 🛠️ Building & Testing
 
 ```bash
-# Run all unit and Robolectric tests
+# Run unit and Robolectric tests
 gradle :app:testDebugUnitTest
 
-# Compile debug applet
-gradle assembleDebug
+# Build debug APK
+gradle :app:assembleDebug
 ```
-
-### Verified Test Scenarios
-
-- **Deduplication Edge Cases**: Whitespace and casing normalization, large clusters (5+ copies), master copy preservation.
-- **RCS Chat Integrity**: Preserves conversation thread IDs and verifies read receipts (`READ` vs `SENT`).
-- **OTP Filtering**: Differentiates between fresh and expired OTP codes; extracts code prefixes (`G-`, `FB-`, PIN).
-- **Custom Rule Engine**: Validates AND/OR keyword matching, sender filters, and age boundary calculations.
-- **On-Device OAuth Security**: Verifies that pulling device secrets fails with `SecurityException` when unauthorized, and succeeds with masked keys in local storage when authorized.
-- **Runtime Permissions**: Validates `READ_SMS` and `WRITE_SMS` state transitions, dual-grant activation, partial grant handling, and rationale/settings dialog lifecycles.
 
 ---
 
-## 🔒 Security & Privacy Commitments
+## 📚 Additional Documentation
 
-1. **No External Transmission**: Message scanning and cleaning are executed 100% on-device.
-2. **Opt-In OAuth Connection**: Device OAuth secrets are retrieved **if and only if** you confirm in the authorization dialog.
-3. **No Tracked Secrets**: API keys, credentials, and keystore certificates are excluded via `.gitignore` and managed securely via environment configuration.
-4. **Reversible Actions**: Quarantine Vault guarantees messages can be restored before permanent deletion.
+- [Release Notes (`v1.0.0-alpha.1`)](RELEASE_NOTES.md)
+- [Release Version Schema](docs/RELEASE_VERSION_SCHEMA.md)
+
+---
+
+## 🔒 Security & Privacy
+
+1. **100% On-Device Processing**: Scanning, classification, and rule matching run locally on your device.
+2. **Opt-In Cloud Access**: OAuth tokens are retrieved only after explicit user confirmation and kept locally on-device.
+3. **Safe Recovery**: Quarantine Vault and 30-day recovery protect against accidental deletion.
 
 ---
 
 ## 📄 License
 
-```
+```text
 Copyright 2026 shqsid
 
 Licensed under the Apache License, Version 2.0 (the "License");

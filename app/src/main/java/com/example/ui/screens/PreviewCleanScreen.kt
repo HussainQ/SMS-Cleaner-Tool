@@ -45,6 +45,7 @@ fun PreviewCleanScreen(
     viewModel: CleanSmsViewModel,
     onRequestDefaultSmsRole: () -> Unit = {},
     onHandBackDefaultSmsRole: () -> Unit = {},
+    onOpenSetupSheet: () -> Unit = onRequestDefaultSmsRole,
     modifier: Modifier = Modifier
 ) {
     var searchInput by remember { mutableStateOf(uiState.searchQuery) }
@@ -136,96 +137,12 @@ fun PreviewCleanScreen(
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Default SMS status indicator or inline request prompt in Device Mode
-                if (uiState.isDefaultSmsApp) {
-                    Surface(
-                        color = TealAccent.copy(alpha = 0.14f),
-                        shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(1.dp, TealAccent.copy(alpha = 0.45f)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("preview_default_sms_status_indicator")
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                modifier = Modifier.weight(1f),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(
-                                    AppIcons.Verified,
-                                    contentDescription = "Default SMS App",
-                                    tint = TealAccent,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Text(
-                                    text = "Default SMS App • From ${uiState.previousDefaultSmsAppName}",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = TealAccent,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            TextButton(
-                                onClick = onHandBackDefaultSmsRole,
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                                modifier = Modifier.testTag("preview_hand_back_sms_btn")
-                            ) {
-                                Text("Hand Back", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TealAccent)
-                            }
-                        }
-                    }
-                } else if (!uiState.isDemoMode) {
-                    Surface(
-                        color = AmberAccent.copy(alpha = 0.12f),
-                        shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(1.dp, AmberAccent.copy(alpha = 0.40f)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("preview_default_sms_needed_bar")
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                modifier = Modifier.weight(1f),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(
-                                    AppIcons.AdminPanelSettings,
-                                    contentDescription = null,
-                                    tint = AmberAccent,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Text(
-                                    text = "Set as Default SMS App to delete permanently",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            TextButton(
-                                onClick = onRequestDefaultSmsRole,
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                                modifier = Modifier.testTag("preview_set_default_sms_btn")
-                            ) {
-                                Text("Set Default", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = AmberAccent)
-                            }
-                        }
-                    }
+                if (!uiState.isDemoMode && !uiState.isDefaultSmsApp) {
+                    com.example.ui.components.SetupStatusPillButton(
+                        uiState = uiState,
+                        onClick = onOpenSetupSheet,
+                        testTag = "preview_default_sms_needed_bar"
+                    )
                 }
 
                 // Interactive Search Bar

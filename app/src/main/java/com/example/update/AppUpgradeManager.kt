@@ -112,6 +112,9 @@ class AppUpgradeManager(private val context: Context) {
             if (effectivePrev in 1 until 10703 && targetVersionCode >= 10703) {
                 applied.add("v1.7.3: Lightweight refactor (local vector icons, R8 shrinking & OkHttp updater), faster scanner/Room pipelines & indeterminate scan progress bar")
             }
+            if (effectivePrev in 1 until 10800 && targetVersionCode >= 10800) {
+                applied.add("v1.0.0-alpha.1: Decluttered 4-tab layout (Messages, Cleanup sub-menus, Vault, Settings), Dark Mode DataStore persistence, popup contact picker & Minimal Cyan Sweep Envelope icon")
+            }
             if (prefs.getString(KEY_GITHUB_REPO, null)?.equals(LEGACY_PLACEHOLDER_REPO, ignoreCase = true) == true) {
                 prefs.edit().putString(KEY_GITHUB_REPO, DEFAULT_GITHUB_REPO).apply()
             }

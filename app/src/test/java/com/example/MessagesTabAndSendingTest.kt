@@ -465,17 +465,13 @@ class MessagesTabAndSendingTest {
         assertFalse(vm.uiState.value.showMessagesSettingsDialog)
         assertEquals(0, composeRule.onAllNodesWithTag("messages_settings_dialog").fetchSemanticsNodes().size)
 
-        // Navigate to Rules & Cloud > Cloud/Settings and verify synchronized toggle
-        if (composeRule.onAllNodesWithTag("nav_tab_rules_cloud").fetchSemanticsNodes().isNotEmpty()) {
-            composeRule.onNodeWithTag("nav_tab_rules_cloud").performClick()
+        // Navigate to Settings tab and verify synchronized toggle
+        if (composeRule.onAllNodesWithTag("nav_tab_settings").fetchSemanticsNodes().isNotEmpty()) {
+            composeRule.onNodeWithTag("nav_tab_settings").performClick()
         } else {
-            composeRule.onNodeWithTag("nav_rail_rules_cloud").performClick()
+            composeRule.onNodeWithTag("nav_rail_settings").performClick()
         }
         composeRule.waitForIdle()
-        if (composeRule.onAllNodesWithTag("rules_cloud_tab_cloud").fetchSemanticsNodes().isNotEmpty()) {
-            composeRule.onNodeWithTag("rules_cloud_tab_cloud").performClick()
-            composeRule.waitForIdle()
-        }
 
         composeRule.onNodeWithTag("settings_compact_messages_switch").performScrollTo()
         composeRule.onNodeWithTag("settings_compact_messages_switch").assertIsOff()

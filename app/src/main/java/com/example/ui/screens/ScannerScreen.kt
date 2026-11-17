@@ -34,9 +34,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.ContactFilterMode
+import com.example.model.ContactInfo
 import com.example.ui.CleanSmsUiState
 import com.example.ui.CleanSmsViewModel
-import com.example.ui.components.ContactFilterChecklist
 import com.example.ui.theme.*
 
 @Composable
@@ -181,7 +181,7 @@ fun ScannerScreen(
 }
 
 @Composable
-private fun DataSourceCard(
+fun DataSourceCard(
     uiState: CleanSmsUiState,
     viewModel: CleanSmsViewModel,
     onRequestSmsPermission: () -> Unit
@@ -258,7 +258,7 @@ private fun DataSourceCard(
 }
 
 @Composable
-private fun ClutterAnalysisCard(
+fun ClutterAnalysisCard(
     totalCleanable: Int,
     allMessagesCount: Int,
     duplicateCount: Int,
@@ -593,7 +593,7 @@ fun TelephonyBanner(
 }
 
 @Composable
-private fun DetectionRulesCard(
+fun DetectionRulesCard(
     uiState: CleanSmsUiState,
     viewModel: CleanSmsViewModel,
     customCount: Int,
@@ -678,8 +678,7 @@ private fun DetectionRulesCard(
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
 
-            // Per-Contact Thread-Scoped Filter Checklist Component
-            val selectedIds = uiState.selectedContacts.map { it.id }.toSet()
+            // Lightweight Per-Contact Thread-Scoped Filter Section (only shows selected contacts; opens popup picker on demand)
             val scope = uiState.contactFilterScope
             val scopeSummary = if (scope.isActive) {
                 if (scope.mode == ContactFilterMode.PROTECT_CONTACTS) {
@@ -690,28 +689,18 @@ private fun DetectionRulesCard(
             } else {
                 null
             }
-            ContactFilterChecklist(
-                title = "Filter by Contact",
-                subtitle = "Check contacts to scope de-duplication & cleaning strictly to their threads",
-                entries = uiState.scannerContactEntries,
-                selectedContactIds = selectedIds,
-                onToggleContact = { contact -> viewModel.toggleSelectedContact(contact) },
-                onSelectAll = { viewModel.selectAllFilterContacts() },
-                onClearAll = { viewModel.clearSelectedContacts() },
+            ScannerContactFilterSection(
+                selectedContacts = uiState.selectedContacts,
                 hasContactsPermission = uiState.hasContactsPermission,
-                onRequestContactsPermission = onRequestContactsPermission,
                 filterEnabled = uiState.filterByContactEnabled,
-                onToggleFilterEnabled = { viewModel.toggleContactFilter(it) },
                 filterMode = uiState.contactFilterMode,
-                onSelectFilterMode = { viewModel.setContactFilterMode(it) },
                 scopeSummaryText = scopeSummary,
-                emptyMessage = "No contacts or SMS threads available yet",
-                maxListHeightDp = 230,
-                testTagPrefix = "scanner_contact_filter",
-                switchTestTag = "main_contact_filter_switch",
-                searchQuery = uiState.scannerContactSearchQuery,
-                onSearchQueryChange = { viewModel.setScannerContactSearchQuery(it) },
-                onOpenFullPicker = { viewModel.openMainContactPicker() }
+                onToggleFilterEnabled = { viewModel.toggleContactFilter(it) },
+                onSelectFilterMode = { viewModel.setContactFilterMode(it) },
+                onOpenContactPicker = { viewModel.openMainContactPicker() },
+                onRemoveSelectedContact = { contact -> viewModel.toggleSelectedContact(contact) },
+                onClearAll = { viewModel.clearSelectedContacts() },
+                onRequestContactsPermission = onRequestContactsPermission
             )
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
@@ -751,6 +740,322 @@ private fun DetectionRulesCard(
                 onCheckedChange = { viewModel.toggleTestingRestoreDeleted(it) },
                 switchTestTag = "testing_restore_deleted_switch"
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun ScannerContactFilterSection(
+    selectedContacts: List<ContactInfo>,
+    hasContactsPermission: Boolean,
+    filterEnabled: Boolean,
+    filterMode: ContactFilterMode,
+    scopeSummaryText: String?,
+    onToggleFilterEnabled: (Boolean) -> Unit,
+    onSelectFilterMode: (ContactFilterMode) -> Unit,
+    onOpenContactPicker: () -> Unit,
+    onRemoveSelectedContact: (ContactInfo) -> Unit,
+    onClearAll: () -> Unit,
+    onRequestContactsPermission: () -> Unit
+) {
+    val selectedCount = selectedContacts.size
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
+        border = BorderStroke(
+            1.dp,
+            if (filterEnabled && selectedCount > 0) {
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+            } else {
+                MaterialTheme.colorScheme.outline.copy(alpha = 0.22f)
+            }
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("scanner_contact_filter_panel")
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.size(34.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = AppIcons.Contacts,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                    Column {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "Filter by Contact",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            if (selectedCount > 0) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                                    shape = CircleShape
+                                ) {
+                                    Text(
+                                        text = "$selectedCount selected",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+                        Text(
+                            text = "Select contacts in a popup to scope de-duplication & cleaning to their threads",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 14.sp
+                        )
+                    }
+                }
+
+                Switch(
+                    checked = filterEnabled,
+                    onCheckedChange = onToggleFilterEnabled,
+                    modifier = Modifier.testTag("main_contact_filter_switch")
+                )
+            }
+
+            // Mode Chips (Target Selected Threads vs Protect VIP Contacts)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                FilterChip(
+                    selected = filterMode == ContactFilterMode.TARGET_CONTACTS,
+                    onClick = { onSelectFilterMode(ContactFilterMode.TARGET_CONTACTS) },
+                    label = { Text("Target Selected", fontSize = 11.sp) },
+                    leadingIcon = if (filterMode == ContactFilterMode.TARGET_CONTACTS) {
+                        { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                    } else null,
+                    modifier = Modifier.testTag("contact_mode_target")
+                )
+                FilterChip(
+                    selected = filterMode == ContactFilterMode.PROTECT_CONTACTS,
+                    onClick = { onSelectFilterMode(ContactFilterMode.PROTECT_CONTACTS) },
+                    label = { Text("Protect (VIP)", fontSize = 11.sp) },
+                    leadingIcon = if (filterMode == ContactFilterMode.PROTECT_CONTACTS) {
+                        { Icon(AppIcons.Shield, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                    } else null,
+                    modifier = Modifier.testTag("contact_mode_protect")
+                )
+            }
+
+            if (filterEnabled && selectedCount > 0 && scopeSummaryText != null) {
+                val scopeAccent = if (filterMode == ContactFilterMode.PROTECT_CONTACTS) {
+                    MaterialTheme.colorScheme.secondary
+                } else {
+                    MaterialTheme.colorScheme.primary
+                }
+                Surface(
+                    color = scopeAccent.copy(alpha = 0.12f),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("scanner_contact_filter_scope_banner")
+                ) {
+                    Text(
+                        text = scopeSummaryText,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = scopeAccent,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                    )
+                }
+            }
+
+            if (!hasContactsPermission) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Grant Contacts permission to show address book names alongside numbers.",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(
+                            onClick = onRequestContactsPermission,
+                            modifier = Modifier.testTag("scanner_contact_filter_grant_contacts_btn")
+                        ) {
+                            Text("Allow", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
+            }
+
+            // Selected Contacts Only (no heavy inline list on ScannerScreen)
+            if (selectedContacts.isEmpty()) {
+                Surface(
+                    onClick = onOpenContactPicker,
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("scanner_no_contacts_selected_hint")
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = AppIcons.PersonSearch,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "No contacts selected yet. Tap Select Contacts to pick from your list.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            } else {
+                FlowRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("scanner_selected_contacts_container"),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    selectedContacts.forEach { contact ->
+                        InputChip(
+                            selected = true,
+                            onClick = onOpenContactPicker,
+                            label = {
+                                Text(
+                                    text = contact.displayName,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            },
+                            avatar = {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = if (contact.isFromDeviceContacts) {
+                                        TealAccent.copy(alpha = 0.22f)
+                                    } else {
+                                        PurpleAccent.copy(alpha = 0.22f)
+                                    },
+                                    modifier = Modifier.size(20.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(
+                                            text = contact.displayName.firstOrNull()?.uppercase() ?: "?",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (contact.isFromDeviceContacts) TealAccent else PurpleAccent
+                                        )
+                                    }
+                                }
+                            },
+                            trailingIcon = {
+                                IconButton(
+                                    onClick = { onRemoveSelectedContact(contact) },
+                                    modifier = Modifier
+                                        .size(22.dp)
+                                        .testTag("scanner_selected_contact_remove_${contact.id}")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Remove ${contact.displayName}",
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            },
+                            modifier = Modifier.testTag("scanner_selected_contact_chip_${contact.id}")
+                        )
+                    }
+                }
+            }
+
+            // Action Row: Select Contacts Popup Trigger + Clear
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                FilledTonalButton(
+                    onClick = onOpenContactPicker,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .testTag("main_choose_contacts_button")
+                ) {
+                    Icon(
+                        imageVector = AppIcons.Contacts,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (selectedCount > 0) "Select Contacts ($selectedCount)" else "Select Contacts",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp
+                    )
+                }
+
+                if (selectedCount > 0) {
+                    TextButton(
+                        onClick = onClearAll,
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("scanner_contact_filter_clear_btn")
+                    ) {
+                        Text("Clear", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
         }
     }
 }
@@ -799,7 +1104,7 @@ private fun StatBadge(
 }
 
 @Composable
-private fun FilterToggleRow(
+fun FilterToggleRow(
     title: String,
     subtitle: String,
     icon: ImageVector,

@@ -807,4 +807,33 @@ class UpdateAndMigrationTest {
         assertTrue(SemanticVersion.parse("v1.7.3-pre.1")!! > SemanticVersion.parse("v1.7.2-pre.1")!!)
         assertEquals(10703, SemanticVersion.parse("v1.7.3-pre.1")!!.toVersionCode())
     }
+
+    @Test
+    fun appUpgradeManager_upgradeTo100Alpha1_preservesMonotonicVersionCode10800AndMigrates() {
+        val prefs = context.getSharedPreferences(AppUpgradeManager.PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit()
+            .clear()
+            .putInt("last_migrated_version_code", 10703)
+            .putString("last_migrated_version_name", "1.7.3-pre.1")
+            .commit()
+
+        val manager = AppUpgradeManager(context)
+        val report = manager.ensureStateMigrated(
+            targetVersionCode = 10800,
+            targetVersionName = "1.0.0-alpha.1"
+        )
+
+        assertFalse(report.wasMultiVersionJump)
+        assertEquals(6, report.databaseSchemaVersion)
+        assertEquals("1.7.3-pre.1", report.previousVersionName)
+        assertEquals(10703, report.previousVersionCode)
+        assertEquals(
+            listOf("v1.0.0-alpha.1: Decluttered 4-tab layout (Messages, Cleanup sub-menus, Vault, Settings), Dark Mode DataStore persistence, popup contact picker & Minimal Cyan Sweep Envelope icon"),
+            report.appliedMilestones
+        )
+        assertEquals(10800, prefs.getInt("last_migrated_version_code", 0))
+        assertEquals("1.0.0-alpha.1", prefs.getString("last_migrated_version_name", null))
+        assertNotNull(SemanticVersion.parse("v1.0.0-alpha.1"))
+        assertTrue(SemanticVersion.parse("v1.0.0-alpha.1")!!.isPreRelease)
+    }
 }

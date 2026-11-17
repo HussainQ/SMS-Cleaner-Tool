@@ -41,6 +41,7 @@ import com.example.model.SmsCategory
 import com.example.model.SmsMessageItem
 import com.example.telephony.IncomingTelephonyNotifier
 import com.example.telephony.TelephonyManagerHelper
+import com.example.ui.theme.ThemePreferencesRepository
 import com.example.update.AppUpgradeManager
 import com.example.update.GitHubUpdateRepository
 import com.example.update.InAppApkInstaller
@@ -158,6 +159,7 @@ data class CleanSmsUiState(
     val messagesProtocolFilter: MessageProtocol? = null,
     val compactMessagesUi: Boolean = true,
     val useDeviceMaterialTheme: Boolean = true,
+    val darkModeOverride: Boolean? = null,
     val showMessagesSettingsDialog: Boolean = false,
     val activeConversationKey: String? = null,
     val pendingNewRecipientAddress: String? = null,
@@ -171,12 +173,17 @@ data class CleanSmsUiState(
     // Hierarchical back-navigation state (Messages is landing tab root; tracks click-order stack & sub-tabs)
     val currentTab: NavigationTab = NavigationTab.MESSAGES,
     val tabBackStack: List<NavigationTab> = listOf(NavigationTab.MESSAGES),
+    val cleanupSubTab: Int = 0, // 0 = Scan, 1 = Review, 2 = Rules
     val vaultSubTab: Int = 0, // 0 = Quarantine, 1 = Deleted Test
-    val rulesCloudSubTab: Int = 0 // 0 = Rules, 1 = Cloud Backup (compact phone mode)
+    val showSetupStatusSheet: Boolean = false
 ) {
+    fun resolveIsDarkTheme(systemIsDark: Boolean): Boolean =
+        darkModeOverride ?: if (useDeviceMaterialTheme) systemIsDark else true
+
     val hasOpenOverlay: Boolean
         get() = showNewMessageDialog ||
             showMessagesSettingsDialog ||
+            showSetupStatusSheet ||
             showMainContactPickerDialog ||
             showPermanentDeleteDialog ||
             showAddCustomRuleSheet ||
@@ -196,7 +203,8 @@ class CleanSmsViewModel @JvmOverloads constructor(
     val deviceOAuthManager: DeviceOAuthManager = DeviceOAuthManager(application, db.cleanSmsDao()),
     private val appUpgradeManager: AppUpgradeManager = AppUpgradeManager(application),
     private val updateRepository: GitHubUpdateRepository = GitHubUpdateRepository(),
-    private val contactFilterRepository: ContactFilterRepository = ContactFilterRepository(db.cleanSmsDao())
+    private val contactFilterRepository: ContactFilterRepository = ContactFilterRepository(db.cleanSmsDao()),
+    private val themePreferencesRepository: ThemePreferencesRepository = ThemePreferencesRepository(application)
 ) : AndroidViewModel(application) {
 
     private val dao = db.cleanSmsDao()
@@ -218,14 +226,28 @@ class CleanSmsViewModel @JvmOverloads constructor(
     private var threadsRecomputeJob: Job? = null
     private var pendingFolderWriteJob: Job? = null
     private var cachedDeviceContacts: List<ContactInfo> = emptyList()
+    @Volatile
+    private var darkModeTouchedByUser: Boolean = false
 
     init {
         initializeUpgradeState()
+        observeThemePreferences()
         checkTelephonyState()
         observeLocalDatabase()
         observeIncomingTelephonyEvents()
         loadInitialData()
         checkForGitHubUpdates(userInitiated = false)
+    }
+
+    private fun observeThemePreferences() {
+        viewModelScope.launch {
+            themePreferencesRepository.darkModeEnabledFlow.collect { darkModeEnabled ->
+                _uiState.update { state ->
+                    if (darkModeEnabled == null && darkModeTouchedByUser) state
+                    else state.copy(darkModeOverride = darkModeEnabled)
+                }
+            }
+        }
     }
 
     private fun observeIncomingTelephonyEvents() {
@@ -2372,6 +2394,14 @@ class CleanSmsViewModel @JvmOverloads constructor(
         _uiState.update { it.copy(useDeviceMaterialTheme = enabled) }
     }
 
+    fun setDarkModeEnabled(enabled: Boolean) {
+        darkModeTouchedByUser = true
+        _uiState.update { it.copy(darkModeOverride = enabled) }
+        viewModelScope.launch(Dispatchers.IO) {
+            themePreferencesRepository.setDarkModeEnabled(enabled)
+        }
+    }
+
     fun openMessagesSettingsDialog() {
         _uiState.update { it.copy(showMessagesSettingsDialog = true) }
     }
@@ -2692,9 +2722,22 @@ class CleanSmsViewModel @JvmOverloads constructor(
         _uiState.update { it.copy(vaultSubTab = normalized) }
     }
 
-    fun setRulesCloudSubTab(tabIndex: Int) {
-        val normalized = tabIndex.coerceIn(0, 1)
-        _uiState.update { it.copy(rulesCloudSubTab = normalized) }
+    fun setCleanupSubTab(tabIndex: Int) {
+        val normalized = tabIndex.coerceIn(0, 2)
+        _uiState.update { it.copy(cleanupSubTab = normalized) }
+    }
+
+    fun navigateToCleanupReview() {
+        navigateToTab(NavigationTab.CLEANUP)
+        setCleanupSubTab(1)
+    }
+
+    fun openSetupStatusSheet() {
+        _uiState.update { it.copy(showSetupStatusSheet = true) }
+    }
+
+    fun dismissSetupStatusSheet() {
+        _uiState.update { it.copy(showSetupStatusSheet = false) }
     }
 
     fun dismissTopOverlay(): Boolean {
@@ -2706,6 +2749,10 @@ class CleanSmsViewModel @JvmOverloads constructor(
             }
             state.showMessagesSettingsDialog -> {
                 dismissMessagesSettingsDialog()
+                true
+            }
+            state.showSetupStatusSheet -> {
+                dismissSetupStatusSheet()
                 true
             }
             state.showMainContactPickerDialog -> {
@@ -2779,7 +2826,7 @@ class CleanSmsViewModel @JvmOverloads constructor(
      * Unified back-navigation handler following hierarchy:
      * Window Overlays -> In-screen Conversation/Search/Category/Sub-Tab -> Tab Click-Order Stack -> Exit (returns false).
      */
-    fun handleBackPress(isRulesCloudCompact: Boolean = true): Boolean {
+    fun handleBackPress(): Boolean {
         if (dismissTopOverlay()) return true
 
         val state = _uiState.value
@@ -2802,14 +2849,24 @@ class CleanSmsViewModel @JvmOverloads constructor(
                     return true
                 }
             }
-            NavigationTab.PREVIEW -> {
-                if (state.searchQuery.isNotEmpty()) {
-                    _uiState.update { it.copy(searchQuery = "") }
-                    return true
-                }
-                if (state.selectedCategoryTab != SmsCategory.ALL) {
-                    _uiState.update { it.copy(selectedCategoryTab = SmsCategory.ALL) }
-                    return true
+            NavigationTab.CLEANUP -> {
+                when (state.cleanupSubTab) {
+                    1 -> {
+                        if (state.searchQuery.isNotEmpty()) {
+                            _uiState.update { it.copy(searchQuery = "") }
+                            return true
+                        }
+                        if (state.selectedCategoryTab != SmsCategory.ALL) {
+                            _uiState.update { it.copy(selectedCategoryTab = SmsCategory.ALL) }
+                            return true
+                        }
+                        _uiState.update { it.copy(cleanupSubTab = 0) }
+                        return true
+                    }
+                    2 -> {
+                        _uiState.update { it.copy(cleanupSubTab = 0) }
+                        return true
+                    }
                 }
             }
             NavigationTab.VAULT -> {
@@ -2818,13 +2875,7 @@ class CleanSmsViewModel @JvmOverloads constructor(
                     return true
                 }
             }
-            NavigationTab.RULES_CLOUD -> {
-                if (isRulesCloudCompact && state.rulesCloudSubTab != 0) {
-                    _uiState.update { it.copy(rulesCloudSubTab = 0) }
-                    return true
-                }
-            }
-            NavigationTab.SCANNER -> Unit
+            NavigationTab.SETTINGS -> Unit
         }
 
         return navigateBackTab()

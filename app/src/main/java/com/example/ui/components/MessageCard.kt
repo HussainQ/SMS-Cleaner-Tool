@@ -81,13 +81,13 @@ fun MessageCard(
                 // Header: Address, RCS pill, & Timestamp
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.weight(1f, fill = false)
+                        modifier = Modifier.weight(1f)
                     ) {
                         Text(
                             text = message.displaySender,
@@ -95,7 +95,8 @@ fun MessageCard(
                             fontSize = 14.sp,
                             color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
                         )
 
                         if (isRcs) {
@@ -118,14 +119,18 @@ fun MessageCard(
                                         text = "RCS",
                                         color = MaterialTheme.colorScheme.primary,
                                         fontSize = 10.sp,
-                                        fontWeight = FontWeight.ExtraBold
+                                        fontWeight = FontWeight.ExtraBold,
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
                                     if (message.rcsDeliveryStatus != null) {
                                         Text(
                                             text = "• ${message.rcsDeliveryStatus.displayName}",
                                             color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
                                             fontSize = 9.sp,
-                                            fontWeight = FontWeight.Medium
+                                            fontWeight = FontWeight.Medium,
+                                            maxLines = 1,
+                                            softWrap = false
                                         )
                                     }
                                 }
@@ -136,6 +141,8 @@ fun MessageCard(
                     Text(
                         text = dateStr,
                         fontSize = 11.sp,
+                        maxLines = 1,
+                        softWrap = false,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }

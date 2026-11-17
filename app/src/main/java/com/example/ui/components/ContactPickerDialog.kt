@@ -32,30 +32,31 @@ fun ContactPickerDialog(
     hasContactsPermission: Boolean,
     onRequestContactsPermission: () -> Unit,
     onConfirmSelection: (List<ContactInfo>) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    messageCountByContactId: Map<String, Int> = emptyMap()
 ) {
     var searchQuery by remember { mutableStateOf("") }
 
-    val selectedIds = remember(availableContacts, initiallySelectedTokens) {
-        mutableStateListOf<String>().apply {
+    val selectedIdMap = remember(availableContacts, initiallySelectedTokens) {
+        mutableStateMapOf<String, Boolean>().apply {
             for (c in availableContacts) {
                 val matches = c.id.lowercase() in initiallySelectedTokens ||
                         c.displayName.trim().lowercase() in initiallySelectedTokens ||
                         c.normalizedTokens.any { it in initiallySelectedTokens }
-                if (matches) add(c.id)
+                if (matches) put(c.id, true)
             }
         }
     }
 
     val filteredContacts by produceState(initialValue = availableContacts, availableContacts, searchQuery) {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-            val q = searchQuery.trim().lowercase()
+            val q = searchQuery.trim()
             if (q.isEmpty()) {
                 availableContacts
             } else {
                 availableContacts.filter { c ->
-                    c.displayName.lowercase().contains(q) ||
-                            c.phoneNumbers.any { it.lowercase().contains(q) }
+                    c.displayName.contains(q, ignoreCase = true) ||
+                            c.phoneNumbers.any { it.contains(q, ignoreCase = true) }
                 }
             }
         }
@@ -202,8 +203,12 @@ fun ContactPickerDialog(
                             .fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(filteredContacts, key = { it.id }) { contact ->
-                            val isSelected = contact.id in selectedIds
+                        items(
+                            items = filteredContacts,
+                            key = { it.id },
+                            contentType = { "contact_row" }
+                        ) { contact ->
+                            val isSelected = selectedIdMap[contact.id] == true
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
                                 color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
@@ -215,7 +220,7 @@ fun ContactPickerDialog(
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(12.dp))
                                     .clickable {
-                                        if (isSelected) selectedIds.remove(contact.id) else selectedIds.add(contact.id)
+                                        if (isSelected) selectedIdMap.remove(contact.id) else selectedIdMap[contact.id] = true
                                     }
                                     .testTag("contact_picker_row_${contact.id}")
                             ) {
@@ -230,9 +235,9 @@ fun ContactPickerDialog(
                                         checked = isSelected,
                                         onCheckedChange = { checked ->
                                             if (checked) {
-                                                if (contact.id !in selectedIds) selectedIds.add(contact.id)
+                                                selectedIdMap[contact.id] = true
                                             } else {
-                                                selectedIds.remove(contact.id)
+                                                selectedIdMap.remove(contact.id)
                                             }
                                         }
                                     )
@@ -269,12 +274,13 @@ fun ContactPickerDialog(
                                         )
                                     }
 
+                                    val msgCount = messageCountByContactId[contact.id] ?: 0
                                     Surface(
                                         shape = RoundedCornerShape(6.dp),
                                         color = if (contact.isFromDeviceContacts) TealAccent.copy(alpha = 0.14f) else PurpleAccent.copy(alpha = 0.14f)
                                     ) {
                                         Text(
-                                            text = if (contact.isFromDeviceContacts) "Contact" else "Messages",
+                                            text = if (msgCount > 0) "$msgCount msg${if (msgCount == 1) "" else "s"}" else if (contact.isFromDeviceContacts) "Contact" else "Messages",
                                             fontSize = 10.sp,
                                             fontWeight = FontWeight.SemiBold,
                                             color = if (contact.isFromDeviceContacts) TealAccent else PurpleAccent,
@@ -288,16 +294,17 @@ fun ContactPickerDialog(
                 }
 
                 // Bottom Action Row
+                val selectedCount = selectedIdMap.size
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     TextButton(
-                        onClick = { selectedIds.clear() },
-                        enabled = selectedIds.isNotEmpty()
+                        onClick = { selectedIdMap.clear() },
+                        enabled = selectedCount > 0
                     ) {
-                        Text("Clear (${selectedIds.size})")
+                        Text("Clear ($selectedCount)")
                     }
 
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -306,7 +313,7 @@ fun ContactPickerDialog(
                         }
                         Button(
                             onClick = {
-                                val chosen = availableContacts.filter { it.id in selectedIds }
+                                val chosen = availableContacts.filter { selectedIdMap[it.id] == true }
                                 onConfirmSelection(chosen)
                             },
                             colors = ButtonDefaults.buttonColors(
@@ -315,7 +322,7 @@ fun ContactPickerDialog(
                             ),
                             modifier = Modifier.testTag("contact_picker_confirm_btn")
                         ) {
-                            Text("Apply (${selectedIds.size})", fontWeight = FontWeight.Bold)
+                            Text("Apply ($selectedCount)", fontWeight = FontWeight.Bold)
                         }
                     }
                 }
